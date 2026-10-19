@@ -1,7 +1,8 @@
-# Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized / DLL files / Typing stubs
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyi
 
 # C extensions
 *.so
