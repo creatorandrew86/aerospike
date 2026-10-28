@@ -21,3 +21,7 @@ env/
 # Editor / IDE
 .vscode/
 .idea/
+
+# Windows shortcuts
+*.lnk
+
