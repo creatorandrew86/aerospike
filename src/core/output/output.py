@@ -17,7 +17,13 @@ def graph_output(ui):
     plt.figure()
     plt.plot(radius, x, color='black')
     plt.plot([-value for value in radius], x, color='black')
-    if float(ui.input_truncate_percentage.get()) < 100:
+    truncate_percent = ui.case.get("definition", {}).get("truncate_percent")
+    if truncate_percent is None:
+        try:
+            truncate_percent = float(ui.input_truncate_percentage.get())
+        except (ValueError, TypeError):
+            truncate_percent = 100
+    if truncate_percent < 100:
         plt.plot([radius[-1], -radius[-1]], [x[-1], x[-1]], color='black', linestyle='--')
     plt.gca().set_aspect('equal', adjustable='box')
     plt.xlabel('R')

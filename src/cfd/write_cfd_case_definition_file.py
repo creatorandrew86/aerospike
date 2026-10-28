@@ -1,4 +1,4 @@
-from cfd.geometry.write_gmsh_geometry_file import inlet_direction
+from cfd.geometry.geometry_definition import inlet_direction
 
 
 _SIZING_FIELDS = {

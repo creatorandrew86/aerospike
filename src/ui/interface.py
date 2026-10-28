@@ -16,6 +16,24 @@ class Interface:
         self.build_interface()
 
 
+    @staticmethod
+    def _parse_float(value):
+        if not value:
+            return None
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _parse_int(value):
+        if not value:
+            return None
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return None
+
     def get_inputs_on_solve(self) -> dict:
         aerospike_type = None
         if self.sizing_var.get():
@@ -32,22 +50,22 @@ class Interface:
             width_val, width_unit = self._get_field_value("linear_width")
         elif aerospike_type == "toroidal":
             if self.toroidal_choice.get() == "massflow" and self.toroidal_massflow_entry.get():
-                mass_flow_val = float(self.toroidal_massflow_entry.get())
+                mass_flow_val = self._parse_float(self.toroidal_massflow_entry.get())
                 mass_flow_unit = self.toroidal_massflow_unit.get()
             elif self.toroidal_choice.get() == "radius" and self.toroidal_radius_entry.get():
-                radius_val = float(self.toroidal_radius_entry.get())
+                radius_val = self._parse_float(self.toroidal_radius_entry.get())
                 radius_unit = self.toroidal_radius_unit.get()
 
         return {
             "oxidizer": self.input_oxidizer.get() or None,
             "fuel": self.input_fuel.get() or None,
-            "Pc": float(self.input_Pc.get()) if self.input_Pc.get() else None,
+            "Pc": self._parse_float(self.input_Pc.get()),
             "unit_Pc": self.unit_Pc.get() or None,
-            "MR": float(self.input_MR.get()) if self.input_MR.get() else None,
-            "eps": float(self.input_eps.get()) if self.input_eps.get() else None,
-            "effective_throat_eps": float(self.input_effective_throat_eps.get()) if self.input_effective_throat_eps.get() else None,
-            "truncate_percent": float(self.input_truncate_percentage.get()) if self.input_truncate_percentage.get() else None,
-            "aerospike_resolution": int(self.input_aerospike_resolution.get()) if self.input_aerospike_resolution.get() else None,
+            "MR": self._parse_float(self.input_MR.get()),
+            "eps": self._parse_float(self.input_eps.get()),
+            "effective_throat_eps": self._parse_float(self.input_effective_throat_eps.get()),
+            "truncate_percent": self._parse_float(self.input_truncate_percentage.get()),
+            "aerospike_resolution": self._parse_int(self.input_aerospike_resolution.get()),
             "sizing": self.sizing_var.get(),
             "aerospike_type": aerospike_type,
             "mfr": mass_flow_val, "unit_mfr": mass_flow_unit,
@@ -59,8 +77,8 @@ class Interface:
 
     def get_inputs_on_gmsh_geometry(self) -> dict:
         inputs = {
-            "contraction_ratio": float(self.input_contraction_ratio.get()) if self.input_contraction_ratio.get() else None,
-            "convergent_nozzle_angle": float(self.input_convergent_nozzle_angle.get()) if self.input_convergent_nozzle_angle.get() else None,
+            "contraction_ratio": self._parse_float(self.input_contraction_ratio.get()),
+            "convergent_nozzle_angle": self._parse_float(self.input_convergent_nozzle_angle.get()),
             "thruster_nozzle": self.thruster_nozzle_var.get(),
         }
         self.case["cfd"]["inputs"] = inputs
@@ -197,7 +215,7 @@ class Interface:
 
     def _get_field_value(self, key):
         entry, var, unit = getattr(self, f"{key}_entry"), getattr(self, f"{key}_var"), getattr(self, f"{key}_unit")
-        return (float(entry.get()), unit.get()) if var.get() and entry.get() else (None, None)
+        return (self._parse_float(entry.get()), unit.get()) if var.get() and entry.get() else (None, None)
 
 
     def fit_results_frame(self):

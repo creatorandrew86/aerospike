@@ -1,5 +1,7 @@
 # Unit Conversion
 def pressure_conversion(value: float, unit: str) -> float:
+    if value is None:
+        return None
     match unit:
         case "Pa" :  return value
         case "kPa" : return value * 1e3
@@ -7,19 +9,26 @@ def pressure_conversion(value: float, unit: str) -> float:
         case "bar" : return value * 1e5
         case "atm" : return value * 101325
         case "psi" : return value * 6894.76
+        case _:      return value
 
 def length_conversion(value: float, unit: str) -> float:
+    if value is None:
+        return None
     match unit:
         case "m":   return value
         case "cm":  return value / 100
         case "mm":  return value / 1000
         case "in":  return value * 0.0254
         case "ft":  return value / 3.28
+        case _:     return value
 
 def mass_flow_conversion(value, unit):
+    if value is None:
+        return None
     match unit:
         case "kg/s":   return value
         case "lb/s":   return value * 0.453592
+        case _:        return value
 
 
 
@@ -46,10 +55,12 @@ def process_inputs_on_solve(inputs: dict) -> list[str]:
 
     # Aerospike Definition
     if inputs["effective_throat_eps"] is None or inputs["effective_throat_eps"] < 1:
-        errors.append("Aerospike effective throat area ratio must be selected and greater than 1.")
+        errors.append("Aerospike effective throat area ratio must be selected and greater than or equal to 1.")
 
-        if inputs["eps"] is None or inputs["eps"] <= inputs["effective_throat_eps"]:
-            errors.append("Area Ratio must be selected and greater than the effective throat area ratio.")
+    if inputs["eps"] is None or inputs["eps"] <= 1:
+        errors.append("Area Ratio must be selected and greater than 1.")
+    elif inputs["effective_throat_eps"] is not None and inputs["eps"] <= inputs["effective_throat_eps"]:
+        errors.append("Area Ratio must be greater than the effective throat area ratio.")
     
 
     if inputs["truncate_percent"] is None or inputs["truncate_percent"] < 40 or inputs["truncate_percent"] > 100:

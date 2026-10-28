@@ -61,10 +61,10 @@ def cfd_setup(inputs: dict) -> dict:
 def effective_throat_conditions(inputs: dict) -> tuple[float, float]:
     c = _cea_object(inputs)
     throat_eps = inputs["effective_throat_eps"]
-    if throat_eps == 1:
+    if throat_eps <= 1:
         effective_throat_velocity = c.get_SonicVelocities(Pc=inputs["Pc"], MR=inputs["MR"], eps=inputs["eps"])[1]
         effective_throat_rho = c.get_Densities(Pc=inputs["Pc"], MR=inputs["MR"], eps=inputs["eps"])[1]
-    if throat_eps > 1:
+    else:
         effective_throat_velocity = c.get_SonicVelocities(Pc=inputs["Pc"], MR=inputs["MR"], eps=throat_eps)[2] * \
         c.get_MachNumber(Pc=inputs["Pc"], MR=inputs["MR"], eps=throat_eps)
         effective_throat_rho = c.get_Densities(Pc=inputs["Pc"], MR=inputs["MR"], eps=throat_eps)[2]
