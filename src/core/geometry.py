@@ -117,10 +117,10 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
         if aerospike_type == "toroidal":
             if mfr is None:
                 # Radius + eps -> throat area -> mass flow
-                throat_length = radius / max(abs(v) for v in results["R_x"])
+                throat_length = radius / (2 * max(abs(v) for v in results["R_x"]))
 
-                results["x"]   = [v * throat_length for v in results["x"]]
-                results["R_x"] = [v * throat_length for v in results["R_x"]]
+                results["x"]   = [2 * v * throat_length for v in results["x"]]
+                results["R_x"] = [2 * v * throat_length for v in results["R_x"]]
 
                 try:
                     mfr = _get_mass_flow_toroidal(radius, inputs)
@@ -137,10 +137,10 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
                     errors.append(f"Cowl radius calculation failed with {e}")
                     return {}, {}, errors
 
-                throat_length = radius / max(abs(v) for v in results["R_x"])
+                throat_length = radius / (2 * max(abs(v) for v in results["R_x"]))
 
-                results["x"]   = [v * throat_length for v in results["x"]]
-                results["R_x"] = [v * throat_length for v in results["R_x"]]
+                results["x"]   = [2 * v * throat_length for v in results["x"]]
+                results["R_x"] = [2 * v * throat_length for v in results["R_x"]]
 
             results["mfr"]    = mfr
             results["radius"] = radius
