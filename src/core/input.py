@@ -63,8 +63,8 @@ def process_inputs_on_solve(inputs: dict) -> list[str]:
         errors.append("Area Ratio must be greater than the effective throat area ratio.")
     
 
-    if inputs["truncate_percent"] is None or inputs["truncate_percent"] < 40 or inputs["truncate_percent"] > 100:
-        errors.append(f"The truncating percentage must be selected and in between 40% and 100%")
+    if inputs["truncate_percent"] is None or inputs["truncate_percent"] < 20 or inputs["truncate_percent"] > 100:
+        errors.append(f"The truncating percentage must be selected and in between 20% and 100%")
 
     if inputs["aerospike_resolution"] is None or inputs["aerospike_resolution"] < 10 or inputs["aerospike_resolution"] > 10000:
         errors.append("The aerospike resolution must be selected and in between 10 and 10000 points.")
