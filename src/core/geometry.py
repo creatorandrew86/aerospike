@@ -73,7 +73,7 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
 
     # Loop - generates contour assuming throat_length = 1
     for i in range(N):
-        mach = entry_mach + (i / N) * (exit_mach - entry_mach)
+        mach = entry_mach + (i / (N-1)) * (exit_mach - entry_mach)
 
         # Station Values
         try:
@@ -85,11 +85,14 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
             pm_angle   = _prandtl_meyer_angle(mach, gamma)
             flow_angle = mach_angle + (exit_pm_angle - pm_angle)
 
-            # Length and coordinates
-            characteristic_length = mach * eps
-
-            x = characteristic_length * -math.cos(flow_angle)
-            R = characteristic_length * math.sin(flow_angle)
+            # Coordinates
+            if aerospike_type == "toroidal":
+                R = 1.0 - math.sqrt(max(0.0, 1.0 - (mach * eps * math.sin(flow_angle)) / inputs["eps"]))
+                x = -R / math.tan(flow_angle)
+            else:
+                characteristic_length = mach * eps
+                x = characteristic_length * -math.cos(flow_angle)
+                R = characteristic_length * math.sin(flow_angle)
 
         except Exception as e:
             errors.append(f"Station {i+1} calculation failed with {e}")
@@ -117,10 +120,10 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
         if aerospike_type == "toroidal":
             if mfr is None:
                 # Radius + eps -> throat area -> mass flow
-                throat_length = radius / (2 * max(abs(v) for v in results["R_x"]))
+                results["x"]   = [v * radius for v in results["x"]]
+                results["R_x"] = [v * radius for v in results["R_x"]]
 
-                results["x"]   = [2 * v * throat_length for v in results["x"]]
-                results["R_x"] = [2 * v * throat_length for v in results["R_x"]]
+                throat_length = math.hypot(results["x"][0], results["R_x"][0])
 
                 try:
                     mfr = _get_mass_flow_toroidal(radius, inputs)
@@ -137,10 +140,10 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
                     errors.append(f"Cowl radius calculation failed with {e}")
                     return {}, {}, errors
 
-                throat_length = radius / (2 * max(abs(v) for v in results["R_x"]))
+                results["x"]   = [v * radius for v in results["x"]]
+                results["R_x"] = [v * radius for v in results["R_x"]]
 
-                results["x"]   = [2 * v * throat_length for v in results["x"]]
-                results["R_x"] = [2 * v * throat_length for v in results["R_x"]]
+                throat_length  = math.hypot(results["x"][0], results["R_x"][0])
 
             results["mfr"]    = mfr
             results["radius"] = radius
@@ -196,9 +199,11 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
     results["nozzle_size"] = max(results["R_x"])
 
     # Truncating
-    results["x"] = results["x"][:int(len(results["x"]) * truncate_percent)]
-    results["R_x"] = results["R_x"][:int(len(results["R_x"]) * truncate_percent)]
-    results["eps_x"] = results["eps_x"][:int(len(results["eps_x"]) * truncate_percent)]
+    cutoff = results["x"][0] - (results["x"][0] - results["x"][-1]) * truncate_percent
+    keep = sum(x >= cutoff for x in results["x"])
+    results["x"] = results["x"][:keep]
+    results["R_x"] = results["R_x"][:keep]
+    results["eps_x"] = results["eps_x"][:keep]
 
     return results, cfd_setup, errors
 
