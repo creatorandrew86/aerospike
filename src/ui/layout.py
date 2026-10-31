@@ -230,8 +230,13 @@ def build_results_frame(ui):
     if x_values:
         ttk.Separator(ui.main_output, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='EW', pady=(8, 8))
         row += 1
-        ttk.Label(ui.main_output, text="Contour Summary", font=label_font).grid(
-            column=0, row=row, columnspan=2, sticky='W', pady=(0, 4)
+        throat_length = results.get("throat_length")
+        throat_display = "—" if throat_length is None else f"{throat_length * 1e3:.2f} mm"
+        ttk.Label(ui.main_output, text="Throat length:", font=label_font).grid(
+            column=0, row=row, sticky='W', padx=(0, 24), pady=2
+        )
+        ttk.Label(ui.main_output, text=throat_display, font=value_font).grid(
+            column=1, row=row, sticky='E', pady=2
         )
         row += 1
         ttk.Label(ui.main_output, text="Axial length:", font=label_font).grid(

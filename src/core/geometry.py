@@ -1,15 +1,21 @@
+from collections.abc import Callable
 import math
+from scipy.integrate import quad
 from core import cea
 
 # Helper functions
-def _prandtl_meyer_angle(mach: float, gamma: float) -> float:
+def _prandtl_meyer_angle(mach: float, gamma_from_mach: Callable[[float], float]) -> float:
+    if mach <= 1.0:
+        return 0.0
 
-    mach = max(mach, 1)
-    pm_angle = math.sqrt((gamma + 1)/(gamma - 1)) * math.atan(math.sqrt((gamma - 1)/(gamma + 1) * (mach**2 - 1))) - math.atan(math.sqrt(mach**2 - 1))
-    return pm_angle
+    def integrand(m: float) -> float:
+        gamma = gamma_from_mach(m)
+        return math.sqrt(max(0.0, m**2 - 1.0)) / (m * (1.0 + (gamma - 1.0) / 2.0 * m**2))
+
+    angle, _ = quad(integrand, 1.0, mach)
+    return float(angle)
 
 def _mach_angle(mach: float) -> float:
-
     mach = max(mach, 1)
     return math.asin(1 / mach)
 
@@ -43,9 +49,11 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
     }
 
     
-    # Aerospike Throat Mach
+    # Aerospike Throat Conditions
     try:
+        gamma_from_mach = cea.gamma_from_mach(inputs)
         entry_mach = cea.entry_conditions(inputs)
+        entry_pm_angle = _prandtl_meyer_angle(entry_mach, gamma_from_mach)
     except Exception as e:
         errors.append(f"CFD inlet conditions calculation failed with {e}")
         return {}, {}, errors
@@ -53,14 +61,15 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
 
     # Aerospike Exit Conditions
     try:
-        exit_mach, exit_gamma = cea.exit_conditions(inputs)
-        exit_pm_angle = _prandtl_meyer_angle(exit_mach, exit_gamma)
+        gamma_from_mach = cea.gamma_from_mach(inputs)
+        exit_mach = cea.exit_mach(inputs)
+        exit_pm_angle = _prandtl_meyer_angle(exit_mach, gamma_from_mach)
     except Exception as e:
         errors.append(f"Exit conditions calculation failed with {e} ")
         return {}, {}, errors
 
 
-    # Results updating
+    # Results updating - expansion pressure and cfd setup
     try:
         results["ideal_expansion_pressure"] = cea.ideal_expansion_pressure(inputs)
         cfd_setup = cea.cfd_setup(inputs)
@@ -68,31 +77,57 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
         errors.append(f"CEA Results calculation failed with {e} ")
         return {}, {}, errors
 
+
+
+    # Sizing the nozzle throat
+    if sizing:
+        expansion_angle = exit_pm_angle - entry_pm_angle
+
+        if aerospike_type == "toroidal":
+            try:
+                mfr, radius, throat_area, throat_length = sizing_toroidal(inputs, expansion_angle, mfr, radius)
+            except Exception as e:
+                errors.append(f"Toroidal sizing calculation failed with {e}")
+                return {}, {}, errors
+
+        if aerospike_type == "linear":
+            try:
+                mfr, width, length, throat_area, throat_length = sizing_linear(inputs, mfr, width, length)
+            except Exception as e:
+                errors.append(f"Linear sizing calculation failed with {e}")
+                return {}, {}, errors
+
+    elif not sizing:
+        # Default throat length and radius values
+        throat_length, radius = 1.0, 1.0 
+
     
 
 
-    # Loop - generates contour assuming throat_length = 1
+    # Mach number marching from entry to exit
     for i in range(N):
         mach = entry_mach + (i / (N-1)) * (exit_mach - entry_mach)
 
-        # Station Values
         try:
-            # Angles
-            eps = cea.eps_from_mach(inputs, mach)
-            gamma = cea.gamma_from_eps(inputs, eps)
+            flow_angle = exit_pm_angle - _prandtl_meyer_angle(mach, gamma_from_mach)
             mach_angle = _mach_angle(mach)
 
-            pm_angle   = _prandtl_meyer_angle(mach, gamma)
-            flow_angle = mach_angle + (exit_pm_angle - pm_angle)
+            # Characteristic line angle relative to the cowl-point radius
+            beta = (math.pi / 2) - mach_angle - flow_angle
+
+            # CEA area ratio
+            eps = cea.eps_from_mach(inputs, mach)
+
+            # Characteristic line length
+            if aerospike_type == "toroidal":
+                C = (mach * eps) / inputs["eps"]
+                characteristic_length = radius * C / (1.0 + math.sqrt(max(0.0, 1.0 - C * math.cos(beta))))
+            else:
+                characteristic_length = throat_length * mach * eps
 
             # Coordinates
-            if aerospike_type == "toroidal":
-                R = 1.0 - math.sqrt(max(0.0, 1.0 - (mach * eps * math.sin(flow_angle)) / inputs["eps"]))
-                x = -R / math.tan(flow_angle)
-            else:
-                characteristic_length = mach * eps
-                x = characteristic_length * -math.cos(flow_angle)
-                R = characteristic_length * math.sin(flow_angle)
+            x = -characteristic_length * math.sin(beta)
+            R = characteristic_length * math.cos(beta)
 
         except Exception as e:
             errors.append(f"Station {i+1} calculation failed with {e}")
@@ -104,145 +139,85 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
         results["eps_x"][i] = eps
 
 
-    throat_length = 1.0
-
     # Non-dimensionalization of coordinates
     if not sizing:
-        max_length = max(max(abs(v) for v in results["x"]), max(abs(v) for v in results["R_x"]))
-        
-        results["x"]   = [v / max_length for v in results["x"]]
-        results["R_x"] = [v / max_length for v in results["R_x"]]
-        throat_length /= max_length
-
-
-    # Sizing
-    if sizing:
+        spike_length = max(results["x"]) - min(results["x"])
+        results["x"]   = [v / spike_length for v in results["x"]]
+        results["R_x"] = [v / spike_length for v in results["R_x"]]
+        throat_length /= spike_length
+    else:
+        results["mfr"] = mfr
         if aerospike_type == "toroidal":
-            if mfr is None:
-                # Radius + eps -> throat area -> mass flow
-                try:
-                    mfr = _get_mass_flow_toroidal(radius, inputs)
-                except Exception as e:
-                    errors.append(f"Mass flow calculation failed with {e}")
-                    return {}, {}, errors
-
-            if radius is None:
-                # Mass flow -> throat area + area ratio -> exit area -> radius
-                try:
-                    radius = _get_radius_toroidal(mfr, inputs)
-                except Exception as e:
-                    errors.append(f"Cowl radius calculation failed with {e}")
-                    return {}, {}, errors
-
-            scale = radius / max(abs(v) for v in results["R_x"])
-            results["x"]   = [v * scale for v in results["x"]]
-            results["R_x"] = [v * scale for v in results["R_x"]]
-            throat_length  = math.hypot(results["x"][0], results["R_x"][0])
-
-            results["mfr"]    = mfr
             results["radius"] = radius
-
-        
-        if aerospike_type == "linear":
-            if mfr is None:
-                # Width (radius equivalent) + area ratio -> throat area -> mass flow
-                throat_length = width / max(abs(v) for v in results["R_x"])
-
-                results["x"]   = [v * throat_length for v in results["x"]]
-                results["R_x"] = [v * throat_length for v in results["R_x"]]
-
-                try:
-                    mfr = _get_mass_flow_linear(length, width, inputs)
-                except Exception as e:
-                    errors.append(f"Mass flow calculation failed with {e}")
-                    return {}, {}, errors
-                
-
-            if length is None:
-                # Width + mfr -> throat area + area ratio -> exit area -> length
-                throat_length = width / max(abs(v) for v in results["R_x"])
-
-                results["x"]   = [v * throat_length for v in results["x"]]
-                results["R_x"] = [v * throat_length for v in results["R_x"]]
-
-                try:
-                    length = _get_length_linear(mfr, width, inputs)
-                except Exception as e:
-                    errors.append(f"Aerospike length calculation failed with {e}")
-                    return {}, {}, errors
-                
-            
-            if width is None:
-                # Mass flow + length -> throat area + area ratio -> exit area -> width
-                try:
-                    width = _get_width_linear(mfr, length, inputs)
-                except Exception as e:
-                    errors.append(f"Width calculation failed with {e}")
-                    return {}, {}, errors
-
-                throat_length = width / max(abs(v) for v in results["R_x"])
-
-                results["x"]   = [v * throat_length for v in results["x"]]
-                results["R_x"] = [v * throat_length for v in results["R_x"]]
-
-            results["mfr"]    = mfr
+        elif aerospike_type == "linear":
+            results["width"] = width
             results["length"] = length
-            results["width"]  = width
 
     results["throat_length"] = throat_length
     results["nozzle_size"] = max(results["R_x"])
 
     # Truncating
-    cutoff = results["x"][0] - (results["x"][0] - results["x"][-1]) * truncate_percent
-    keep = sum(x >= cutoff for x in results["x"])
-    results["x"] = results["x"][:keep]
-    results["R_x"] = results["R_x"][:keep]
-    results["eps_x"] = results["eps_x"][:keep]
+    if truncate_percent < 1.0:
+        cutoff = results["x"][0] - (results["x"][0] - results["x"][-1]) * truncate_percent
+        keep = sum(x >= cutoff for x in results["x"])
+        results["x"] = results["x"][:keep]
+        results["R_x"] = results["R_x"][:keep]
+        results["eps_x"] = results["eps_x"][:keep]
 
     return results, cfd_setup, errors
 
 
 
+def sizing_toroidal(inputs: dict, expansion_angle: float, mfr: float | None = None, radius: float | None = None) -> tuple[float, float, float, float]:
+    exit_velocity, exit_rho = cea.exit_conditions(inputs)
 
-# Torroidal aerospike values
-def _get_mass_flow_toroidal(radius: float, inputs: dict) -> float:
+    # Given radius
+    if mfr is None:
+        exit_area = math.pi * pow(radius, 2)
+        mfr = exit_rho * exit_velocity * exit_area
+
+    # Given mass flow
+    elif radius is None:
+        exit_area = mfr / (exit_rho * exit_velocity)
+        radius = math.sqrt(exit_area / math.pi)
+
+    # Throat area
     effective_throat_velocity, effective_throat_rho = cea.effective_throat_conditions(inputs)
-    throat_area = math.pi * pow(radius, 2) / (inputs["eps"] / inputs["effective_throat_eps"])
-    mfr = throat_area * effective_throat_velocity * effective_throat_rho
+    throat_area = mfr / (effective_throat_rho * effective_throat_velocity)
 
-    return mfr
+    # Throat angle
+    throat_angle = expansion_angle + _mach_angle(cea.exit_mach(inputs)) - math.pi / 2
 
-def _get_radius_toroidal(mfr: float, inputs: dict) -> float:
+    # Throat length
+    throat_length = (radius - math.sqrt(max(0.0, radius**2 - (throat_area * math.cos(throat_angle)) / math.pi))) / math.cos(throat_angle)
+
+    return mfr, radius, throat_area, throat_length
+
+
+def sizing_linear(inputs: dict, mfr: float | None = None, width: float | None = None, length: float | None = None) -> tuple[float, float, float, float, float]:
+    exit_velocity, exit_rho = cea.exit_conditions(inputs)
+
+    # Given length and width
+    if mfr is None:
+        exit_area = length * width
+        mfr = exit_rho * exit_velocity * exit_area
+
+    # Given mfr and width
+    elif length is None:
+        exit_area = mfr / (exit_rho * exit_velocity)
+        length = exit_area / width
+
+    # Given mfr and length
+    elif width is None:
+        exit_area = mfr / (exit_rho * exit_velocity)
+        width = exit_area / length
+
+    # Throat area
     effective_throat_velocity, effective_throat_rho = cea.effective_throat_conditions(inputs)
-    throat_area = mfr / (effective_throat_velocity * effective_throat_rho)
-    exit_area = throat_area * (inputs["eps"] / inputs["effective_throat_eps"])
-    radius = math.sqrt(exit_area / math.pi)
+    throat_area = mfr / (effective_throat_rho * effective_throat_velocity)
 
-    return radius
+    # Throat length
+    throat_length = throat_area / (2 * width)
 
+    return mfr, width, length, throat_area, throat_length
 
-
-
-# Linear aerospike values
-def _get_mass_flow_linear(length: float, width: float, inputs: dict) -> float:
-    effective_throat_velocity, effective_throat_rho = cea.effective_throat_conditions(inputs)
-    throat_area = length * width / (inputs["eps"] / inputs["effective_throat_eps"])
-    mfr = throat_area * effective_throat_velocity * effective_throat_rho
-
-    return mfr
-
-def _get_length_linear(mfr: float, width: float, inputs: dict) -> float:
-    effective_throat_velocity, effective_throat_rho = cea.effective_throat_conditions(inputs)
-    throat_area = mfr / (effective_throat_velocity * effective_throat_rho)
-    exit_area = throat_area * (inputs["eps"] / inputs["effective_throat_eps"])
-    length = exit_area / width
-
-    return length
-
-def _get_width_linear(mfr: float, length: float, inputs: dict) -> float:
-    effective_throat_velocity, effective_throat_rho = cea.effective_throat_conditions(inputs)
-    throat_area = mfr / (effective_throat_velocity * effective_throat_rho)
-    exit_area = throat_area * (inputs["eps"] / inputs["effective_throat_eps"])
-    width = exit_area / length
-
-    return width
