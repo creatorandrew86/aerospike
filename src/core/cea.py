@@ -55,9 +55,13 @@ def gamma_from_mach(inputs: dict) -> Callable[[float], float]:
     return interp1d(mach_list, gamma_list, kind="cubic", fill_value="extrapolate")
 
 
-def ideal_expansion_pressure(inputs: dict) -> float:
+def pressure_from_eps(inputs: dict, eps: float) -> float:
     c = _cea_object(inputs)
-    return inputs["Pc"] / c.get_PcOvPe(Pc=inputs["Pc"], MR=inputs["MR"], eps=inputs["eps"])
+    return inputs["Pc"] / c.get_PcOvPe(Pc=inputs["Pc"], MR=inputs["MR"], eps=eps)
+
+
+def ideal_expansion_pressure(inputs: dict) -> float:
+    return pressure_from_eps(inputs, inputs["eps"])
 
 
 def cfd_setup(inputs: dict) -> dict:
