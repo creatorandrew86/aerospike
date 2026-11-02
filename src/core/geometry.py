@@ -21,7 +21,7 @@ def _mach_angle(mach: float) -> float:
 
 
 
-def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
+def generate_aerospike_contour(inputs: dict, on_progress=None) -> tuple[dict, dict, list[str]]:
     errors = []
 
     truncate_percent     = inputs["truncate_percent"] / 100
@@ -123,7 +123,7 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
                 C = (mach * eps) / inputs["eps"]
                 characteristic_length = radius * C / (1.0 + math.sqrt(max(0.0, 1.0 - C * math.cos(beta))))
             else:
-                characteristic_length = throat_length * mach * eps
+                characteristic_length = throat_length * (mach * eps) / (entry_mach * inputs["effective_throat_eps"])
 
             # Coordinates
             x = -characteristic_length * math.sin(beta)
@@ -137,6 +137,8 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
         results["x"][i]     = x
         results["R_x"][i]   = R
         results["eps_x"][i] = eps
+        if on_progress:
+            on_progress((i + 1) / N)
 
 
     # Non-dimensionalization of coordinates
@@ -185,11 +187,11 @@ def sizing_toroidal(inputs: dict, expansion_angle: float, mfr: float | None = No
     effective_throat_velocity, effective_throat_rho = cea.effective_throat_conditions(inputs)
     throat_area = mfr / (effective_throat_rho * effective_throat_velocity)
 
-    # Throat angle
-    throat_angle = expansion_angle + _mach_angle(cea.exit_mach(inputs)) - math.pi / 2
-
-    # Throat length
-    throat_length = (radius - math.sqrt(max(0.0, radius**2 - (throat_area * math.cos(throat_angle)) / math.pi))) / math.cos(throat_angle)
+    # Throat length (first characteristic length)
+    entry_mach = cea.entry_conditions(inputs)
+    beta = math.pi / 2 - _mach_angle(entry_mach) - expansion_angle
+    C = (entry_mach * inputs["effective_throat_eps"]) / inputs["eps"]
+    throat_length = radius * C / (1.0 + math.sqrt(max(0.0, 1.0 - C * math.cos(beta))))
 
     return mfr, radius, throat_area, throat_length
 
@@ -216,8 +218,9 @@ def sizing_linear(inputs: dict, mfr: float | None = None, width: float | None = 
     effective_throat_velocity, effective_throat_rho = cea.effective_throat_conditions(inputs)
     throat_area = mfr / (effective_throat_rho * effective_throat_velocity)
 
-    # Throat length
-    throat_length = throat_area / (2 * width)
+    # Throat length (first characteristic length)
+    entry_mach = cea.entry_conditions(inputs)
+    throat_length = (throat_area * entry_mach) / (2 * length)
 
     return mfr, width, length, throat_area, throat_length
 

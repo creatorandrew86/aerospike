@@ -28,7 +28,15 @@ def on_solve():
         return
 
     ui.case["definition"] = definition
-    results, cfd_setup, solver_errors = geometry.generate_aerospike_contour(inputs)
+    def update_progress(frac):
+        ui.progress["value"] = frac * 100
+        ui.progress_label.config(text=f"{frac * 100:.0f}%")
+        ui.root.update_idletasks()  # repaint; UI stays frozen during solve
+
+    update_progress(0)
+    ui.progress.grid(); ui.progress_label.grid()
+    results, cfd_setup, solver_errors = geometry.generate_aerospike_contour(inputs, update_progress)
+    ui.progress.grid_remove(); ui.progress_label.grid_remove()
     if solver_errors:
         ui.case["results"] = {}
         ui.case["cfd"]["setup"] = {}
@@ -43,7 +51,7 @@ def on_solve():
 if __name__ == "__main__":
     root = tk.Tk()
     root.title('Aerospike')
-    root.geometry('570x330')
+    root.geometry('570x340')
     root.resizable(False, False)
 
     ICON = get_base_path() / "assets" / "icon.ico"

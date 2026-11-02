@@ -1,6 +1,6 @@
 import math
 from core import cea
-from core.geometry import _mach_angle, _prandtl_meyer_angle
+from core.geometry import _prandtl_meyer_angle
 
 G0 = 9.80665
 
@@ -14,9 +14,7 @@ def _thruser_component(inputs: dict, results: dict, ambient_pressure: float) -> 
     gamma_from_mach = cea.gamma_from_mach(inputs)
     entry_mach = cea.entry_conditions(inputs)
     exit_mach = cea.exit_mach(inputs)
-    expansion_angle = _prandtl_meyer_angle(exit_mach, gamma_from_mach) - _prandtl_meyer_angle(entry_mach, gamma_from_mach)
-    mach_angle = _mach_angle(exit_mach)
-    throat_angle = expansion_angle + mach_angle
+    throat_angle = _prandtl_meyer_angle(exit_mach, gamma_from_mach) - _prandtl_meyer_angle(entry_mach, gamma_from_mach)
 
     return (mfr * throat_velocity + (throat_pressure - ambient_pressure) * throat_area) * math.cos(throat_angle)
 
@@ -28,12 +26,14 @@ def _spike_pressure_component(inputs: dict, results: dict, ambient_pressure: flo
 
     x = results["x"]
     R_x = results["R_x"]
+    eps_x = results.get("eps_x")
     n_points = len(R_x)
 
     ps = [None] * n_points
     for i in range(n_points):
-        mach = entry_mach + (i / (N - 1)) * (exit_mach - entry_mach)
-        eps = cea.eps_from_mach(inputs, mach)
+        eps = eps_x[i] if eps_x and eps_x[i] is not None else cea.eps_from_mach(
+            inputs, entry_mach + (i / (N - 1)) * (exit_mach - entry_mach)
+        )
         ps[i] = max(cea.pressure_from_eps(inputs, eps), ambient_pressure)
 
     aerospike_type = results["aerospike_type"]

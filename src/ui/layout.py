@@ -125,30 +125,47 @@ def build_interface(ui):
     for column, weight in enumerate((1, 8, 1)):
         run_area.columnconfigure(column, weight=weight, uniform='run')
     ttk.Button(run_area, text='Run', command=ui.on_run).grid(column=1, row=0, sticky='EW')
+    ui.progress = ttk.Progressbar(run_area, maximum=100)
+    ui.progress_label = ttk.Label(run_area, text='0%')
+    ui.progress.grid(column=1, row=1, sticky='EW', pady=(4, 0))
+    ui.progress_label.grid(column=2, row=1, pady=(4, 0))
+    ui.progress.grid_remove()  # shown on first Run
+    ui.progress_label.grid_remove()
 
     # Results tab
     ui.results_frame = ttk.LabelFrame(ui.results_tab, padding=16)
     ui.results_frame.grid(column=0, row=0, padx=10, pady=10, sticky="NSEW")
-    ui.results_title = ttk.Label(ui.results_frame, text="Results", font=section_font)
+    ui.results_title = ttk.Label(ui.results_frame, text="Geometry", font=section_font)
     ui.results_frame.configure(labelwidget=ui.results_title)
     ui.main_output = ttk.Frame(ui.results_frame)
     ui.main_output.grid(column=0, row=0, sticky="NSEW")
+    ui.main_output.columnconfigure(0, weight=1)
     ui.results_frame.columnconfigure(0, weight=1)
     ui.results_frame.rowconfigure(0, weight=1)
+    ttk.Label(ui.main_output, text="No results available.", foreground="gray40").grid(column=0, row=0, sticky="W")
+    ui.graph_button = ttk.Button(ui.results_frame, text='Generate Graph', command=lambda: output.graph_output(ui), state='disabled')
+    ui.graph_button.grid(column=0, row=1, pady=(6, 0), sticky='EW')
+
+    ui.performance_frame = ttk.LabelFrame(ui.results_tab, padding=16)
+    ui.performance_frame.grid(column=1, row=0, padx=10, pady=10, sticky="NSEW")
+    ui.performance_title = ttk.Label(ui.performance_frame, text="Performance", font=section_font)
+    ui.performance_frame.configure(labelwidget=ui.performance_title)
+    ui.performance_output = ttk.Frame(ui.performance_frame)
+    ui.performance_output.grid(column=0, row=0, sticky="NSEW")
+    ui.performance_output.columnconfigure(0, weight=1)
+    ui.performance_frame.columnconfigure(0, weight=1)
+    ui.performance_frame.rowconfigure(0, weight=1)
+    ttk.Label(ui.performance_output, text="No results available.", foreground="gray40").grid(column=0, row=0, sticky="W")
+
+    ui.save_frame = ttk.LabelFrame(ui.results_tab, padding=(5, 2, 7, 6))
+    ui.save_frame.configure(labelwidget=ttk.Frame(ui.save_frame, width=0, height=0))
+    ui.save_frame.place(relx=1.0, rely=1.0, x=2, y=2, anchor="se")
+    ui.contour_button = ttk.Button(ui.save_frame, text='Save As', command=lambda: output.save_results_file(ui), state='disabled')
+    ui.contour_button.grid(column=0, row=0)
+
     ui.results_tab.columnconfigure(0, weight=1, uniform="results")
     ui.results_tab.columnconfigure(1, weight=1, uniform="results")
     ui.results_tab.rowconfigure(0, weight=1)
-    ttk.Label(ui.main_output, text="No results available.", foreground="gray40").grid(column=0, row=0, sticky="W")
-
-    # Results actions
-    ui.results_actions = ttk.Frame(ui.results_tab)
-    ui.results_actions.grid(column=1, row=0, padx=10, pady=10, sticky='SEW')
-    for column, weight in enumerate((1, 8, 1)):
-        ui.results_actions.columnconfigure(column, weight=weight)
-    ui.contour_button = ttk.Button(ui.results_actions, text='Save As', command=lambda: output.save_results_file(ui), state='disabled')
-    ui.contour_button.grid(column=1, row=0, sticky='EW')
-    ui.graph_button = ttk.Button(ui.results_actions, text='Generate Graph', command=lambda: output.graph_output(ui), state='disabled')
-    ui.graph_button.grid(column=1, row=1, pady=(6, 0), sticky='EW')
 
     # CFD tab: thruster inputs
     ui.thruster_nozzle_var = tk.BooleanVar(value=False)
@@ -191,6 +208,8 @@ def build_results_frame(ui):
 
     for widget in ui.main_output.winfo_children():
         widget.destroy()
+    for widget in ui.performance_output.winfo_children():
+        widget.destroy()
 
     results = ui.case["results"]
     aerospike_type = results.get("aerospike_type")
@@ -219,10 +238,10 @@ def build_results_frame(ui):
             value = results.get(key)
             display_value = "—" if value is None else f"{value:.2g} {unit}"
             ttk.Label(ui.main_output, text=f"{label}:", font=label_font).grid(
-                column=0, row=row, sticky='W', padx=(0, 24), pady=3
+                column=0, row=row, sticky='W', padx=(0, 12), pady=3
             )
             ttk.Label(ui.main_output, text=display_value, font=value_font).grid(
-                column=1, row=row, sticky='E', pady=3
+                column=1, row=row, sticky='E', padx=(0, 8), pady=3
             )
             row += 1
 
@@ -233,33 +252,31 @@ def build_results_frame(ui):
         throat_length = results.get("throat_length")
         throat_display = "—" if throat_length is None else f"{throat_length * 1e3:.2f} mm"
         ttk.Label(ui.main_output, text="Throat length:", font=label_font).grid(
-            column=0, row=row, sticky='W', padx=(0, 24), pady=2
+            column=0, row=row, sticky='W', padx=(0, 12), pady=2
         )
         ttk.Label(ui.main_output, text=throat_display, font=value_font).grid(
-            column=1, row=row, sticky='E', pady=2
+            column=1, row=row, sticky='E', padx=(0, 8), pady=2
         )
         row += 1
         ttk.Label(ui.main_output, text="Axial length:", font=label_font).grid(
-            column=0, row=row, sticky='W', padx=(0, 24), pady=2
+            column=0, row=row, sticky='W', padx=(0, 12), pady=2
         )
         ttk.Label(ui.main_output, text=f"{max(x_values) - min(x_values):.4g} m", font=value_font).grid(
-            column=1, row=row, sticky='E', pady=2
+            column=1, row=row, sticky='E', padx=(0, 8), pady=2
         )
         row += 1
 
     ideal_expansion_pressure = results.get("ideal_expansion_pressure")
     if ideal_expansion_pressure is not None:
-        ttk.Separator(ui.main_output, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='EW', pady=(8, 8))
-        row += 1
-        ttk.Label(ui.main_output, text="Performance", font=label_font).grid(
-            column=0, row=row, columnspan=2, sticky='W', pady=(0, 4)
+        ttk.Label(ui.performance_output, text="Ideal expansion pressure:", font=label_font).grid(
+            column=0, row=0, sticky='W', padx=(0, 8), pady=2
         )
-        row += 1
-        ttk.Label(ui.main_output, text="Ideal expansion pressure:", font=label_font).grid(
-            column=0, row=row, sticky='W', padx=(0, 24), pady=2
+        ttk.Label(ui.performance_output, text=f"{ideal_expansion_pressure / 1e5:.3f} bar", font=value_font).grid(
+            column=1, row=0, sticky='E', padx=(0, 4), pady=2
         )
-        ttk.Label(ui.main_output, text=f"{ideal_expansion_pressure / 1e5:.3f} bar", font=value_font).grid(
-            column=1, row=row, sticky='E', pady=2
+    else:
+        ttk.Label(ui.performance_output, text="No results available.", font=label_font, foreground="gray40").grid(
+            column=0, row=0, sticky="W"
         )
 
     ui.fit_results_frame()
