@@ -1,3 +1,6 @@
+import math
+
+
 # Unit Conversion
 def pressure_conversion(value: float, unit: str) -> float:
     if value is None:
@@ -29,6 +32,69 @@ def mass_flow_conversion(value, unit):
         case "kg/s":   return value
         case "lb/s":   return value * 0.453592
         case _:        return value
+
+
+def altitude_to_pressure(altitude: float) -> float:
+    """Converts altitude (m) to ambient pressure (Pa) using the standard atmosphere model."""
+    if altitude is None:
+        return None
+    if altitude <= 0:
+        return 101325.0
+    if altitude >= 80000.0:
+        return 0.0
+    if altitude <= 11000.0:
+        return 101325.0 * (1.0 - 0.0065 * altitude / 288.15) ** 5.2559
+    if altitude <= 20000.0:
+        return 22632.1 * math.exp(-0.000157688 * (altitude - 11000.0))
+    return 101325.0 * math.exp(-altitude / 7200.0)
+
+
+def pressure_to_altitude(pressure: float) -> float:
+    """Converts ambient pressure (Pa) to geometric altitude (m) using the standard atmosphere model."""
+    if pressure is None or pressure <= 0:
+        return 80000.0
+    if pressure >= 101325.0:
+        return 0.0
+    if pressure >= 22632.1:
+        return 44330.8 * (1.0 - (pressure / 101325.0) ** 0.190263)
+    if pressure >= 5474.9:
+        return 11000.0 - math.log(pressure / 22632.1) / 0.000157688
+    return -7200.0 * math.log(pressure / 101325.0)
+
+
+def parse_analysis_inputs(raw: str) -> list[float]:
+    """Parses comma-separated floats and start:step:stop or start:stop range syntax."""
+    if not raw or not raw.strip():
+        return []
+    values = []
+    for token in raw.replace(";", ",").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" in token:
+            try:
+                parts = [float(p.strip()) for p in token.split(":")]
+                if len(parts) == 3:
+                    start, step, stop = parts
+                    if step != 0 and (stop - start) / step >= 0:
+                        curr = start
+                        while (curr <= stop + 1e-9) if step > 0 else (curr >= stop - 1e-9):
+                            values.append(round(curr, 6))
+                            curr += step
+                elif len(parts) == 2:
+                    start, stop = parts
+                    step = (stop - start) / 5.0
+                    for i in range(6):
+                        values.append(round(start + i * step, 6))
+            except ValueError:
+                continue
+        else:
+            try:
+                values.append(float(token))
+            except ValueError:
+                continue
+    seen = set()
+    return [x for x in values if not (x in seen or seen.add(x))]
 
 
 

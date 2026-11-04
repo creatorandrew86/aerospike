@@ -2,9 +2,17 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
+from .altitude_performance import (
+    generate_altitude_performance_graph,
+    generate_altitude_performance_table,
+)
 from .write_results_file import write_results
 
+show_altitude_performance = generate_altitude_performance_table
+show_altitude_performance_graph = generate_altitude_performance_graph
 
+
+# Geometry Graph Output
 def graph_output(ui):
     import matplotlib
     matplotlib.use("TkAgg")
@@ -32,10 +40,15 @@ def graph_output(ui):
     plt.show()
 
 
+
+
+# Errors
 def show_errors(ui):
     messagebox.showerror("Errors", "\n".join(ui.case["errors"]))
 
 
+
+# Files
 def save_results_file(ui):
     if not ui.case["results"].get("x"):
         messagebox.showerror("Error", "Run the program before saving the results.")

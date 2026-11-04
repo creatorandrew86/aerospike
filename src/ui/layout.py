@@ -1,7 +1,31 @@
 import tkinter as tk
 from tkinter import font, ttk
 
+from core import cea, input as core_input
 from core.output import output
+
+
+def _create_tooltip(widget, text):
+    tip = [None]
+
+    def show(_):
+        if tip[0]:
+            return
+        x, y = widget.winfo_rootx() + 18, widget.winfo_rooty() + 5
+        t = tk.Toplevel(widget)
+        t.wm_overrideredirect(True)
+        t.geometry(f"+{x}+{y}")
+        tk.Label(t, text=text, bg="#1f2937", fg="#ffffff", font=("Arial", 8), padx=6, pady=3).pack()
+        tip[0] = t
+
+    def hide(_):
+        if tip[0]:
+            tip[0].destroy()
+            tip[0] = None
+
+    widget.bind("<Enter>", show)
+    widget.bind("<Leave>", hide)
+    widget.bind("<Destroy>", hide)
 
 
 def build_interface(ui):
@@ -68,6 +92,11 @@ def build_interface(ui):
     ui.input_aerospike_resolution = ttk.Entry(ui.aerospike_tab, width=18)
     ui.input_aerospike_resolution.grid(column=1, row=9, **pad_input)
 
+    # Placeholder on last row of column 1 to absorb excess height and preserve original gaps
+    ui.placeholder = ttk.Label(ui.aerospike_tab, text='')
+    ui.placeholder.grid(column=1, row=11, sticky='NSEW')
+    ui.aerospike_tab.rowconfigure(11, weight=1)
+
     # Definition tab: sizing controls
     ui.sizing_area = ttk.Frame(ui.aerospike_tab)
     ui.sizing_area.grid(column=2, row=0, rowspan=12, columnspan=2, padx=5, sticky='NW')
@@ -125,16 +154,21 @@ def build_interface(ui):
     for column, weight in enumerate((1, 8, 1)):
         run_area.columnconfigure(column, weight=weight, uniform='run')
     ttk.Button(run_area, text='Run', command=ui.on_run).grid(column=1, row=0, sticky='EW')
-    ui.progress = ttk.Progressbar(run_area, maximum=100)
-    ui.progress_label = ttk.Label(run_area, text='0%')
-    ui.progress.grid(column=1, row=1, sticky='EW', pady=(4, 0))
-    ui.progress_label.grid(column=2, row=1, pady=(4, 0))
-    ui.progress.grid_remove()  # shown on first Run
+    ui.progress_box = ttk.Frame(run_area, height=22)
+    ui.progress_box.grid(column=1, row=1, columnspan=2, sticky='EW', pady=(4, 0))
+    ui.progress_box.grid_propagate(False)
+    ui.progress_box.columnconfigure(0, weight=1)
+
+    ui.progress = ttk.Progressbar(ui.progress_box, maximum=100)
+    ui.progress_label = ttk.Label(ui.progress_box, text='0%', width=4)
+    ui.progress.grid(column=0, row=0, sticky='EW')
+    ui.progress_label.grid(column=1, row=0, padx=(4, 0))
+    ui.progress.grid_remove()
     ui.progress_label.grid_remove()
 
     # Results tab
-    ui.results_frame = ttk.LabelFrame(ui.results_tab, padding=16)
-    ui.results_frame.grid(column=0, row=0, padx=10, pady=10, sticky="NSEW")
+    ui.results_frame = ttk.LabelFrame(ui.results_tab, padding=14)
+    ui.results_frame.grid(column=0, row=0, padx=(10, 5), pady=10, sticky="NSEW")
     ui.results_title = ttk.Label(ui.results_frame, text="Geometry", font=section_font)
     ui.results_frame.configure(labelwidget=ui.results_title)
     ui.main_output = ttk.Frame(ui.results_frame)
@@ -146,16 +180,70 @@ def build_interface(ui):
     ui.graph_button = ttk.Button(ui.results_frame, text='Generate Graph', command=lambda: output.graph_output(ui), state='disabled')
     ui.graph_button.grid(column=0, row=1, pady=(6, 0), sticky='EW')
 
-    ui.performance_frame = ttk.LabelFrame(ui.results_tab, padding=16)
-    ui.performance_frame.grid(column=1, row=0, padx=10, pady=10, sticky="NSEW")
+    ui.performance_frame = ttk.LabelFrame(ui.results_tab, padding=10)
+    ui.performance_frame.grid(column=1, row=0, padx=(5, 10), pady=10, sticky="NSEW")
     ui.performance_title = ttk.Label(ui.performance_frame, text="Performance", font=section_font)
     ui.performance_frame.configure(labelwidget=ui.performance_title)
     ui.performance_output = ttk.Frame(ui.performance_frame)
-    ui.performance_output.grid(column=0, row=0, sticky="NSEW")
+    ui.performance_output.grid(column=0, row=0, sticky="EW")
     ui.performance_output.columnconfigure(0, weight=1)
     ui.performance_frame.columnconfigure(0, weight=1)
-    ui.performance_frame.rowconfigure(0, weight=1)
     ttk.Label(ui.performance_output, text="No results available.", foreground="gray40").grid(column=0, row=0, sticky="W")
+
+    # Altitude analysis section (inside performance frame, shown after run)
+    ui.altitude_analysis_frame = ttk.Frame(ui.performance_frame)
+    ui.altitude_analysis_frame.grid(column=0, row=1, pady=(3, 0), sticky="EW")
+    ui.altitude_analysis_frame.columnconfigure(1, weight=1)
+
+    title_row = ttk.Frame(ui.altitude_analysis_frame)
+    title_row.grid(column=0, row=0, columnspan=2, sticky="EW", pady=(2, 3))
+    title_row.columnconfigure(0, weight=1)
+    title_row.columnconfigure(2, weight=1)
+    ttk.Separator(title_row, orient="horizontal").grid(column=0, row=0, sticky="EW")
+    ttk.Label(
+        title_row,
+        text="Altitude Performance",
+        font=font.Font(family="Arial", size=9, weight="bold"),
+    ).grid(column=1, row=0, padx=8)
+    ttk.Separator(title_row, orient="horizontal").grid(column=2, row=0, sticky="EW")
+
+    ui.analysis_type = ttk.Combobox(
+        ui.altitude_analysis_frame,
+        values=["Altitude (km)", "Pressure (bar)"],
+        width=13,
+        state="readonly",
+    )
+    ui.analysis_type.set("Altitude (km)")
+    ui.analysis_type.grid(column=0, row=1, sticky="W", padx=(0, 6), pady=1)
+
+    ui.input_analysis = ttk.Entry(ui.altitude_analysis_frame)
+    ui.input_analysis.grid(column=1, row=1, sticky="EW", pady=1)
+    ui.input_altitude = ui.input_analysis
+
+    action_row = ttk.Frame(ui.altitude_analysis_frame)
+    action_row.grid(column=0, row=2, columnspan=2, sticky="EW", pady=(4, 1))
+    action_row.columnconfigure(0, weight=1, uniform="analysis_btn")
+    action_row.columnconfigure(1, weight=1, uniform="analysis_btn")
+    action_row.columnconfigure(2, weight=0)
+
+    ui.table_analysis_button = ttk.Button(
+        action_row, text="Table", command=lambda: output.generate_altitude_performance_table(ui)
+    )
+    ui.table_analysis_button.grid(column=0, row=0, sticky="EW", padx=(0, 2))
+
+    ui.graph_analysis_button = ttk.Button(
+        action_row, text="Graph", command=lambda: output.generate_altitude_performance_graph(ui)
+    )
+    ui.graph_analysis_button.grid(column=1, row=0, sticky="EW", padx=(2, 0))
+
+    ui.generate_analysis_button = ui.table_analysis_button
+    ui.input_analysis.bind("<Return>", lambda e: output.generate_altitude_performance_table(ui))
+
+    ui.info_button = tk.Label(action_row, text="ⓘ", font=("Arial", 10), fg="#6b7280", cursor="hand2")
+    ui.info_button.grid(column=2, row=0, padx=(6, 0))
+    _create_tooltip(ui.info_button, "Enter one or multiple values separated by comma ','")
+
+    ui.altitude_analysis_frame.grid_remove()
 
     ui.save_frame = ttk.LabelFrame(ui.results_tab, padding=(5, 2, 7, 6))
     ui.save_frame.configure(labelwidget=ttk.Frame(ui.save_frame, width=0, height=0))
@@ -163,8 +251,8 @@ def build_interface(ui):
     ui.contour_button = ttk.Button(ui.save_frame, text='Save As', command=lambda: output.save_results_file(ui), state='disabled')
     ui.contour_button.grid(column=0, row=0)
 
-    ui.results_tab.columnconfigure(0, weight=1, uniform="results")
-    ui.results_tab.columnconfigure(1, weight=1, uniform="results")
+    ui.results_tab.columnconfigure(0, weight=0, minsize=195)
+    ui.results_tab.columnconfigure(1, weight=1)
     ui.results_tab.rowconfigure(0, weight=1)
 
     # CFD tab: thruster inputs
@@ -207,8 +295,6 @@ def build_results_frame(ui):
     header_font = font.Font(family="Arial", size=11, weight="bold")
 
     for widget in ui.main_output.winfo_children():
-        widget.destroy()
-    for widget in ui.performance_output.winfo_children():
         widget.destroy()
 
     results = ui.case["results"]
@@ -266,21 +352,42 @@ def build_results_frame(ui):
         )
         row += 1
 
-    ideal_expansion_pressure = results.get("ideal_expansion_pressure")
-    if ideal_expansion_pressure is not None:
-        ttk.Label(ui.performance_output, text="Ideal expansion pressure:", font=label_font).grid(
-            column=0, row=0, sticky='W', padx=(0, 8), pady=2
-        )
-        ttk.Label(ui.performance_output, text=f"{ideal_expansion_pressure / 1e5:.3f} bar", font=value_font).grid(
-            column=1, row=0, sticky='E', padx=(0, 4), pady=2
-        )
-    else:
-        ttk.Label(ui.performance_output, text="No results available.", font=label_font, foreground="gray40").grid(
-            column=0, row=0, sticky="W"
-        )
-
     ui.fit_results_frame()
     ui.notebook.select(ui.results_tab)
+
+
+def build_performance_frame(ui):
+    for widget in ui.performance_output.winfo_children():
+        widget.destroy()
+
+    results = ui.case.get("results", {})
+    definition = ui.case.get("definition", {})
+    if not results.get("x"):
+        ui.altitude_analysis_frame.grid_remove()
+        ttk.Label(ui.performance_output, text="No results available.", foreground="gray40").grid(column=0, row=0, sticky="W")
+        return
+
+    ui.altitude_analysis_frame.grid()
+
+    inputs = {**definition, "Pc": core_input.pressure_conversion(definition.get("Pc"), definition.get("unit_Pc"))}
+    p_design = results.get("ideal_expansion_pressure")
+    if p_design is None:
+        p_design = cea.ideal_expansion_pressure(inputs)
+
+    h_design = core_input.pressure_to_altitude(p_design) if p_design is not None else 0.0
+    p_bar = p_design / 1e5 if p_design is not None else 0.0
+
+    bg_parent = ttk.Style().lookup("TFrame", "background") or "SystemButtonFace"
+    label_style = dict(bg=bg_parent, fg="#111827", bd=0, padx=0, pady=0, highlightthickness=0)
+
+    row_frame = tk.Frame(ui.performance_output, bg=bg_parent)
+    row_frame.grid(column=0, row=0, sticky="W", padx=(0, 4), pady=(1, 2))
+
+    tk.Label(row_frame, text="Ideal Expansion : ", font=("Arial", 9), **label_style).pack(side="left")
+    tk.Label(row_frame, text=f"H={h_design:,.0f} m, ", font=("Arial", 9, "bold"), **label_style).pack(side="left")
+    tk.Label(row_frame, text="P", font=("Arial", 9, "bold"), **label_style).pack(side="left")
+    tk.Label(row_frame, text="atm", font=("Arial", 6, "bold"), **label_style).pack(side="left", pady=(3, 0))
+    tk.Label(row_frame, text=f"={p_bar:.3f} bar", font=("Arial", 9, "bold"), **label_style).pack(side="left")
 
 
 def _build_sizing_row(ui, parent, row_idx, label_text, key, units):
