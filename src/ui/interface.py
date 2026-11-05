@@ -160,25 +160,21 @@ class Interface:
             self.toroidal_massflow_unit.configure(state='readonly')
             self.toroidal_radius_entry.configure(state='disabled')
             self.toroidal_radius_unit.configure(state='disabled')
-            self.toroidal_radius_entry.delete(0, tk.END)
         else:
             self.toroidal_radius_entry.configure(state='normal')
             self.toroidal_radius_unit.configure(state='readonly')
             self.toroidal_massflow_entry.configure(state='disabled')
             self.toroidal_massflow_unit.configure(state='disabled')
-            self.toroidal_massflow_entry.delete(0, tk.END)
 
 
     def on_nozzle_choice_change(self):
         if self.nozzle_choice.get() == "area_ratio":
             self.input_eps.configure(state='normal')
-            self.input_design_pressure.delete(0, tk.END)
             self.input_design_pressure.configure(state='disabled')
             self.unit_design_pressure.configure(state='disabled')
         else:
             self.input_design_pressure.configure(state='normal')
             self.unit_design_pressure.configure(state='readonly')
-            self.input_eps.delete(0, tk.END)
             self.input_eps.configure(state='disabled')
 
 

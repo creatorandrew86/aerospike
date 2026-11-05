@@ -6,11 +6,17 @@ from .altitude_performance import (
     generate_altitude_performance_graph,
     generate_altitude_performance_table,
 )
+from .performance_comparison import (
+    generate_performance_comparison_graph,
+    generate_performance_comparison_table,
+)
 from .graph_contour import graph_output
 from .write_results_file import write_results
 
 show_altitude_performance_table = generate_altitude_performance_table
 show_altitude_performance_graph = generate_altitude_performance_graph
+show_performance_comparison_table = generate_performance_comparison_table
+show_performance_comparison_graph = generate_performance_comparison_graph
 
 
 # Errors

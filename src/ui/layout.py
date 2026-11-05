@@ -186,7 +186,7 @@ def build_interface(ui):
 
     # Results tab
     ui.results_frame = ttk.LabelFrame(ui.results_tab, padding=14)
-    ui.results_frame.grid(column=0, row=0, padx=(10, 5), pady=10, sticky="NSEW")
+    ui.results_frame.grid(column=0, row=0, padx=(10, 5), pady=(10, 4), sticky="NSEW")
     ui.results_title = ttk.Label(ui.results_frame, text="Geometry", font=section_font)
     ui.results_frame.configure(labelwidget=ui.results_title)
     ui.main_output = ttk.Frame(ui.results_frame)
@@ -199,7 +199,7 @@ def build_interface(ui):
     ui.graph_button.grid(column=0, row=1, pady=(6, 0), sticky='EW')
 
     ui.performance_frame = ttk.LabelFrame(ui.results_tab, padding=10)
-    ui.performance_frame.grid(column=1, row=0, padx=(5, 10), pady=10, sticky="NSEW")
+    ui.performance_frame.grid(column=1, row=0, padx=(5, 10), pady=(10, 4), sticky="NSEW")
     ui.performance_title = ttk.Label(ui.performance_frame, text="Performance", font=section_font)
     ui.performance_frame.configure(labelwidget=ui.performance_title)
     ui.performance_output = ttk.Frame(ui.performance_frame)
@@ -225,24 +225,43 @@ def build_interface(ui):
     ).grid(column=1, row=0, padx=8)
     ttk.Separator(title_row, orient="horizontal").grid(column=2, row=0, sticky="EW")
 
+    # Model selection row
+    model_row = ttk.Frame(ui.altitude_analysis_frame)
+    model_row.grid(column=0, row=1, columnspan=2, sticky="W", pady=(1, 3))
+    ttk.Label(model_row, text="Model :", font=font.Font(family="Arial", size=9)).pack(side="left", padx=(0, 6))
+    ui.altitude_model_var = tk.StringVar(value="angelino")
+    ttk.Radiobutton(
+        model_row, text="Angelino Modified", value="angelino", variable=ui.altitude_model_var
+    ).pack(side="left", padx=(0, 6))
+    ttk.Radiobutton(
+        model_row, text="Calibrated", value="calibrated", variable=ui.altitude_model_var
+    ).pack(side="left")
+
+    entry_row = ttk.Frame(ui.altitude_analysis_frame)
+    entry_row.grid(column=0, row=2, columnspan=2, sticky="EW", pady=1)
+    entry_row.columnconfigure(1, weight=1)
+
     ui.analysis_type = ttk.Combobox(
-        ui.altitude_analysis_frame,
+        entry_row,
         values=["Altitude (km)", "Pressure (bar)"],
         width=13,
         state="readonly",
     )
     ui.analysis_type.set("Altitude (km)")
-    ui.analysis_type.grid(column=0, row=1, sticky="W", padx=(0, 6), pady=1)
+    ui.analysis_type.grid(column=0, row=0, sticky="W", padx=(0, 6))
 
-    ui.input_analysis = ttk.Entry(ui.altitude_analysis_frame)
-    ui.input_analysis.grid(column=1, row=1, sticky="EW", pady=1)
+    ui.input_analysis = ttk.Entry(entry_row)
+    ui.input_analysis.grid(column=1, row=0, sticky="EW")
     ui.input_altitude = ui.input_analysis
 
+    ui.info_button = tk.Label(entry_row, text="ⓘ", font=("Arial", 10), fg="#6b7280", cursor="hand2")
+    ui.info_button.grid(column=2, row=0, padx=(6, 0))
+    _create_tooltip(ui.info_button, "Enter one or multiple values separated by comma ','")
+
     action_row = ttk.Frame(ui.altitude_analysis_frame)
-    action_row.grid(column=0, row=2, columnspan=2, sticky="EW", pady=(4, 1))
+    action_row.grid(column=0, row=3, columnspan=2, sticky="EW", pady=(4, 1))
     action_row.columnconfigure(0, weight=1, uniform="analysis_btn")
     action_row.columnconfigure(1, weight=1, uniform="analysis_btn")
-    action_row.columnconfigure(2, weight=0)
 
     ui.table_analysis_button = ttk.Button(
         action_row, text="Table", command=lambda: index.generate_altitude_performance_table(ui)
@@ -257,21 +276,76 @@ def build_interface(ui):
     ui.generate_analysis_button = ui.table_analysis_button
     ui.input_analysis.bind("<Return>", lambda e: index.generate_altitude_performance_table(ui))
 
-    ui.info_button = tk.Label(action_row, text="ⓘ", font=("Arial", 10), fg="#6b7280", cursor="hand2")
-    ui.info_button.grid(column=2, row=0, padx=(6, 0))
-    _create_tooltip(ui.info_button, "Enter one or multiple values separated by comma ','")
-
     ui.altitude_analysis_frame.grid_remove()
 
-    ui.save_frame = ttk.LabelFrame(ui.results_tab, padding=(5, 2, 7, 6))
-    ui.save_frame.configure(labelwidget=ttk.Frame(ui.save_frame, width=0, height=0))
-    ui.save_frame.place(relx=1.0, rely=1.0, x=2, y=2, anchor="se")
-    ui.contour_button = ttk.Button(ui.save_frame, text='Save As', command=lambda: index.save_results_file(ui), state='disabled')
-    ui.contour_button.grid(column=0, row=0)
+    # Performance comparison section (inside performance frame, shown after run)
+    ui.performance_comparison_frame = ttk.Frame(ui.performance_frame)
+    ui.performance_comparison_frame.grid(column=0, row=2, pady=(10, 0), sticky="EW")
+    ui.performance_comparison_frame.columnconfigure(0, weight=1)
+    ui.performance_comparison_frame.columnconfigure(1, weight=1)
+
+    comp_title_row = ttk.Frame(ui.performance_comparison_frame)
+    comp_title_row.grid(column=0, row=0, columnspan=2, sticky="EW", pady=(2, 3))
+    comp_title_row.columnconfigure(0, weight=1)
+    comp_title_row.columnconfigure(2, weight=1)
+    ttk.Separator(comp_title_row, orient="horizontal").grid(column=0, row=0, sticky="EW")
+    ttk.Label(
+        comp_title_row,
+        text="Performance Comparison",
+        font=font.Font(family="Arial", size=9, weight="bold"),
+    ).grid(column=1, row=0, padx=8)
+    ttk.Separator(comp_title_row, orient="horizontal").grid(column=2, row=0, sticky="EW")
+
+    ui.compare_angelino_var = tk.BooleanVar(value=False)
+    ui.compare_angelino_check = ttk.Checkbutton(
+        ui.performance_comparison_frame, text="Angelino Modified", variable=ui.compare_angelino_var
+    )
+    ui.compare_angelino_check.grid(column=0, row=1, sticky="W", pady=1)
+
+    ui.compare_design_var = tk.BooleanVar(value=False)
+    ui.compare_design_check = ttk.Checkbutton(
+        ui.performance_comparison_frame, text="Design Calibrated", variable=ui.compare_design_var
+    )
+    ui.compare_design_check.grid(column=0, row=2, sticky="W", pady=1)
+
+    ui.compare_bell_ideal_var = tk.BooleanVar(value=False)
+    ui.compare_bell_ideal_check = ttk.Checkbutton(
+        ui.performance_comparison_frame, text="Bell (Ideal Expansion)", variable=ui.compare_bell_ideal_var
+    )
+    ui.compare_bell_ideal_check.grid(column=1, row=1, sticky="W", pady=1)
+
+    ui.compare_bell_eps_var = tk.BooleanVar(value=False)
+    ui.compare_bell_eps_check = ttk.Checkbutton(
+        ui.performance_comparison_frame, text="Bell (Constant \u03b5)", variable=ui.compare_bell_eps_var
+    )
+    ui.compare_bell_eps_check.grid(column=1, row=2, sticky="W", pady=1)
+
+    comp_action_row = ttk.Frame(ui.performance_comparison_frame)
+    comp_action_row.grid(column=0, row=3, columnspan=2, sticky="EW", pady=(4, 1))
+    comp_action_row.columnconfigure(0, weight=1, uniform="comp_btn")
+    comp_action_row.columnconfigure(1, weight=1, uniform="comp_btn")
+
+    ui.table_comparison_button = ttk.Button(
+        comp_action_row, text="Table", command=lambda: index.generate_performance_comparison_table(ui)
+    )
+    ui.table_comparison_button.grid(column=0, row=0, sticky="EW", padx=(0, 2))
+
+    ui.graph_comparison_button = ttk.Button(
+        comp_action_row, text="Graph", command=lambda: index.generate_performance_comparison_graph(ui)
+    )
+    ui.graph_comparison_button.grid(column=1, row=0, sticky="EW", padx=(2, 0))
+
+    ui.performance_comparison_frame.grid_remove()
+
+    ui.contour_button = ttk.Button(
+        ui.results_tab, text='Save As', command=lambda: index.save_results_file(ui), state='disabled'
+    )
+    ui.contour_button.grid(row=1, column=1, sticky='SE', padx=(0, 10), pady=(0, 6))
 
     ui.results_tab.columnconfigure(0, weight=0, minsize=195)
     ui.results_tab.columnconfigure(1, weight=1)
-    ui.results_tab.rowconfigure(0, weight=1)
+    ui.results_tab.rowconfigure(0, weight=0, minsize=294)
+    ui.results_tab.rowconfigure(1, weight=1)
 
     # CFD tab: thruster inputs
     ui.thruster_nozzle_var = tk.BooleanVar(value=False)
@@ -383,10 +457,12 @@ def build_performance_frame(ui):
     definition = ui.case.get("definition", {})
     if not results.get("x"):
         ui.altitude_analysis_frame.grid_remove()
+        ui.performance_comparison_frame.grid_remove()
         ttk.Label(ui.performance_output, text="No results available.", foreground="gray40").grid(column=0, row=0, sticky="W")
         return
 
     ui.altitude_analysis_frame.grid()
+    ui.performance_comparison_frame.grid()
 
     inputs = {**definition, "Pc": core_input.pressure_conversion(definition.get("Pc"), definition.get("unit_Pc"))}
     p_design = results.get("ideal_expansion_pressure")
