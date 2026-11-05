@@ -74,6 +74,8 @@ def generate_altitude_performance_table(ui):
     given_values = core_input.parse_analysis_inputs(raw_text)
 
     inputs = {**definition, "Pc": core_input.pressure_conversion(definition.get("Pc"), definition.get("unit_Pc"))}
+    if inputs.get("eps") is None and results.get("eps") is not None:
+        inputs["eps"] = results["eps"]
     is_sized = results.get("mfr") is not None
     if is_sized:
         calc_results = results
@@ -210,6 +212,8 @@ def generate_altitude_performance_graph(ui):
     given_values = core_input.parse_analysis_inputs(raw_text)
 
     inputs = {**definition, "Pc": core_input.pressure_conversion(definition.get("Pc"), definition.get("unit_Pc"))}
+    if inputs.get("eps") is None and results.get("eps") is not None:
+        inputs["eps"] = results["eps"]
     is_sized = results.get("mfr") is not None
     if is_sized:
         calc_results = results

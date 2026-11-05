@@ -56,13 +56,22 @@ class Interface:
                 radius_val = self._parse_float(self.toroidal_radius_entry.get())
                 radius_unit = self.toroidal_radius_unit.get()
 
+        eps_val = self._parse_float(self.input_eps.get()) if self.nozzle_choice.get() == "area_ratio" else None
+        p_design_val = self._parse_float(self.input_design_pressure.get()) if self.nozzle_choice.get() == "design_pressure" else None
+        unit_p_design = self.unit_design_pressure.get() or "bar"
+
         return {
             "oxidizer": self.input_oxidizer.get() or None,
             "fuel": self.input_fuel.get() or None,
             "Pc": self._parse_float(self.input_Pc.get()),
             "unit_Pc": self.unit_Pc.get() or None,
             "MR": self._parse_float(self.input_MR.get()),
-            "eps": self._parse_float(self.input_eps.get()),
+            "nozzle_choice": self.nozzle_choice.get(),
+            "eps": eps_val,
+            "design_pressure": p_design_val,
+            "unit_design_pressure": unit_p_design,
+            "p_design": p_design_val,
+            "unit_p_design": unit_p_design,
             "effective_throat_eps": self._parse_float(self.input_effective_throat_eps.get()),
             "truncate_percent": self._parse_float(self.input_truncate_percentage.get()),
             "aerospike_resolution": self._parse_int(self.input_aerospike_resolution.get()),
@@ -158,6 +167,19 @@ class Interface:
             self.toroidal_massflow_entry.configure(state='disabled')
             self.toroidal_massflow_unit.configure(state='disabled')
             self.toroidal_massflow_entry.delete(0, tk.END)
+
+
+    def on_nozzle_choice_change(self):
+        if self.nozzle_choice.get() == "area_ratio":
+            self.input_eps.configure(state='normal')
+            self.input_design_pressure.delete(0, tk.END)
+            self.input_design_pressure.configure(state='disabled')
+            self.unit_design_pressure.configure(state='disabled')
+        else:
+            self.input_design_pressure.configure(state='normal')
+            self.unit_design_pressure.configure(state='readonly')
+            self.input_eps.delete(0, tk.END)
+            self.input_eps.configure(state='disabled')
 
 
     def on_sizing_field_toggle(self, changed_key, group=None, max_checked=None):

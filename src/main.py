@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 
 import core.geometry as geometry, ui.interface as interface, core.input as input, ui.layout as layout
-from core.output import output
+from core.output import index
 
 def get_base_path() -> Path:
     if getattr(sys, "frozen", False):
@@ -24,7 +24,7 @@ def on_solve():
         ui.case["results"] = {}
         ui.case["cfd"]["setup"] = {}
         ui.case["errors"] = input_errors
-        output.show_errors(ui)
+        index.show_errors(ui)
         return
 
     ui.case["definition"] = definition
@@ -43,9 +43,10 @@ def on_solve():
         ui.case["results"] = {}
         ui.case["cfd"]["setup"] = {}
         ui.case["errors"] = solver_errors
-        output.show_errors(ui)
+        index.show_errors(ui)
         return
 
+    ui.case["definition"]["eps"] = inputs["eps"]
     ui.case["results"] = results
     ui.case["cfd"]["setup"] = cfd_setup
     layout.build_results_frame(ui)

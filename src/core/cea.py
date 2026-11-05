@@ -44,7 +44,8 @@ def gamma_from_eps(inputs: dict, eps: float) -> float:
 def gamma_from_mach(inputs: dict) -> Callable[[float], float]:
     c = _cea_object(inputs)
     _, gamma_throat = c.get_Throat_MolWt_gamma(Pc=inputs["Pc"], MR=inputs["MR"])
-    eps_range = np.geomspace(1.005, max(150.0, inputs.get("eps", 150.0)), num=80)
+    eps_val = inputs.get("eps") or 150.0
+    eps_range = np.geomspace(1.005, max(150.0, eps_val), num=80)
 
     mach_list = [1.0]
     gamma_list = [gamma_throat]
@@ -58,6 +59,11 @@ def gamma_from_mach(inputs: dict) -> Callable[[float], float]:
 def pressure_from_eps(inputs: dict, eps: float) -> float:
     c = _cea_object(inputs)
     return inputs["Pc"] / c.get_PcOvPe(Pc=inputs["Pc"], MR=inputs["MR"], eps=eps)
+
+
+def eps_from_pressure_ratio(inputs: dict) -> float:
+    pr = inputs.get("pressure_ratio", inputs.get("pr"))
+    return float(_cea_object(inputs).get_eps_at_PcOvPe(Pc=inputs["Pc"], MR=inputs["MR"], PcOvPe=pr))
 
 
 def ideal_expansion_pressure(inputs: dict) -> float:

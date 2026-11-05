@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import font, ttk
 
 from core import cea, input as core_input
-from core.output import output
+from core.output import index
 
 
 def _create_tooltip(widget, text):
@@ -72,25 +72,43 @@ def build_interface(ui):
     ui.input_MR = ttk.Entry(ui.aerospike_tab, width=18)
     ui.input_MR.grid(column=1, row=4, **pad_input)
 
-    ttk.Label(ui.aerospike_tab, text='Design Area Ratio:').grid(column=0, row=5, **pad_label)
-    ui.input_eps = ttk.Entry(ui.aerospike_tab, width=18)
-    ui.input_eps.grid(column=1, row=5, **pad_input)
-
     # Definition tab: nozzle inputs
     ttk.Label(ui.aerospike_tab, text='Nozzle Definition', font=section_font).grid(
-        column=0, row=6, columnspan=2, padx=10, pady=(10, 5), sticky='W'
+        column=0, row=5, columnspan=2, padx=10, pady=(10, 5), sticky='W'
     )
-    ttk.Label(ui.aerospike_tab, text='Effective Throat Area Ratio:').grid(column=0, row=7, **pad_label)
+    ui.nozzle_choice = tk.StringVar(value="area_ratio")
+    ui.area_ratio_radio = ttk.Radiobutton(
+        ui.aerospike_tab, text='Design Area Ratio:', value='area_ratio', variable=ui.nozzle_choice, command=ui.on_nozzle_choice_change
+    )
+    ui.area_ratio_radio.grid(column=0, row=6, **pad_label)
+    ui.input_eps = ttk.Entry(ui.aerospike_tab, width=18)
+    ui.input_eps.grid(column=1, row=6, **pad_input)
+
+    ui.pressure_radio = ttk.Radiobutton(
+        ui.aerospike_tab, text='Design Pressure:', value='design_pressure', variable=ui.nozzle_choice, command=ui.on_nozzle_choice_change
+    )
+    ui.pressure_radio.grid(column=0, row=7, **pad_label)
+    p_row = ttk.Frame(ui.aerospike_tab)
+    p_row.grid(column=1, row=7, padx=(0, 10), pady=(1, 2), sticky='W')
+    ui.input_design_pressure = ttk.Entry(p_row, width=8, state='disabled')
+    ui.input_design_pressure.grid(column=0, row=0, sticky='W')
+    ui.unit_design_pressure = ttk.Combobox(p_row, values=["bar", "Pa", "atm", "kPa", "psi", "MPa"], width=5, state='disabled')
+    ui.unit_design_pressure.grid(column=1, row=0, padx=(6, 0), sticky='W')
+    ui.unit_design_pressure.set("bar")
+    ui.input_pressure_ratio = ui.input_design_pressure
+    ui.pressure_ratio_radio = ui.pressure_radio
+
+    ttk.Label(ui.aerospike_tab, text='Thruster Area Ratio:').grid(column=0, row=8, padx=(10, 4), pady=(6, 2), sticky='W')
     ui.input_effective_throat_eps = ttk.Entry(ui.aerospike_tab, width=18)
-    ui.input_effective_throat_eps.grid(column=1, row=7, **pad_input)
+    ui.input_effective_throat_eps.grid(column=1, row=8, padx=(0, 10), pady=(6, 2), sticky='W')
 
-    ttk.Label(ui.aerospike_tab, text='Truncate at (%):').grid(column=0, row=8, **pad_label)
+    ttk.Label(ui.aerospike_tab, text='Truncate at (%):').grid(column=0, row=9, **pad_label)
     ui.input_truncate_percentage = ttk.Entry(ui.aerospike_tab, width=18)
-    ui.input_truncate_percentage.grid(column=1, row=8, **pad_input)
+    ui.input_truncate_percentage.grid(column=1, row=9, **pad_input)
 
-    ttk.Label(ui.aerospike_tab, text='Aerospike Resolution:').grid(column=0, row=9, **pad_label)
+    ttk.Label(ui.aerospike_tab, text='Number of Points Analyzed:').grid(column=0, row=10, **pad_label)
     ui.input_aerospike_resolution = ttk.Entry(ui.aerospike_tab, width=18)
-    ui.input_aerospike_resolution.grid(column=1, row=9, **pad_input)
+    ui.input_aerospike_resolution.grid(column=1, row=10, **pad_input)
 
     # Placeholder on last row of column 1 to absorb excess height and preserve original gaps
     ui.placeholder = ttk.Label(ui.aerospike_tab, text='')
@@ -177,7 +195,7 @@ def build_interface(ui):
     ui.results_frame.columnconfigure(0, weight=1)
     ui.results_frame.rowconfigure(0, weight=1)
     ttk.Label(ui.main_output, text="No results available.", foreground="gray40").grid(column=0, row=0, sticky="W")
-    ui.graph_button = ttk.Button(ui.results_frame, text='Generate Graph', command=lambda: output.graph_output(ui), state='disabled')
+    ui.graph_button = ttk.Button(ui.results_frame, text='Contour Graph', command=lambda: index.graph_output(ui), state='disabled')
     ui.graph_button.grid(column=0, row=1, pady=(6, 0), sticky='EW')
 
     ui.performance_frame = ttk.LabelFrame(ui.results_tab, padding=10)
@@ -227,17 +245,17 @@ def build_interface(ui):
     action_row.columnconfigure(2, weight=0)
 
     ui.table_analysis_button = ttk.Button(
-        action_row, text="Table", command=lambda: output.generate_altitude_performance_table(ui)
+        action_row, text="Table", command=lambda: index.generate_altitude_performance_table(ui)
     )
     ui.table_analysis_button.grid(column=0, row=0, sticky="EW", padx=(0, 2))
 
     ui.graph_analysis_button = ttk.Button(
-        action_row, text="Graph", command=lambda: output.generate_altitude_performance_graph(ui)
+        action_row, text="Graph", command=lambda: index.generate_altitude_performance_graph(ui)
     )
     ui.graph_analysis_button.grid(column=1, row=0, sticky="EW", padx=(2, 0))
 
     ui.generate_analysis_button = ui.table_analysis_button
-    ui.input_analysis.bind("<Return>", lambda e: output.generate_altitude_performance_table(ui))
+    ui.input_analysis.bind("<Return>", lambda e: index.generate_altitude_performance_table(ui))
 
     ui.info_button = tk.Label(action_row, text="ⓘ", font=("Arial", 10), fg="#6b7280", cursor="hand2")
     ui.info_button.grid(column=2, row=0, padx=(6, 0))
@@ -248,7 +266,7 @@ def build_interface(ui):
     ui.save_frame = ttk.LabelFrame(ui.results_tab, padding=(5, 2, 7, 6))
     ui.save_frame.configure(labelwidget=ttk.Frame(ui.save_frame, width=0, height=0))
     ui.save_frame.place(relx=1.0, rely=1.0, x=2, y=2, anchor="se")
-    ui.contour_button = ttk.Button(ui.save_frame, text='Save As', command=lambda: output.save_results_file(ui), state='disabled')
+    ui.contour_button = ttk.Button(ui.save_frame, text='Save As', command=lambda: index.save_results_file(ui), state='disabled')
     ui.contour_button.grid(column=0, row=0)
 
     ui.results_tab.columnconfigure(0, weight=0, minsize=195)
@@ -273,13 +291,13 @@ def build_interface(ui):
     ui.input_convergent_nozzle_angle.grid(column=1, row=1, padx=(5, 10), pady=(0, 10), sticky='EW')
 
     # CFD export actions
-    ui.mesh_button = ttk.Button(ui.cfd_tab, text='Export Mesh', command=lambda: output.save_mesh_file(ui), state='disabled')
+    ui.mesh_button = ttk.Button(ui.cfd_tab, text='Export Mesh', command=lambda: index.save_mesh_file(ui), state='disabled')
     ui.mesh_button.grid(column=0, row=1, padx=(10, 4), pady=3, sticky='EW')
     ui.cfd_case_definition_button = ttk.Button(
-        ui.cfd_tab, text='Save CFD Case Definition', command=lambda: output.save_cfd_case_definition(ui), state='disabled'
+        ui.cfd_tab, text='Save CFD Case Definition', command=lambda: index.save_cfd_case_definition(ui), state='disabled'
     )
     ui.cfd_case_definition_button.grid(column=0, row=2, padx=(10, 4), pady=3, sticky='EW')
-    ui.geo_button = ttk.Button(ui.cfd_tab, text='Export CFD Geometry', command=lambda: output.save_gmsh_geometry_file(ui), state='disabled')
+    ui.geo_button = ttk.Button(ui.cfd_tab, text='Export CFD Geometry', command=lambda: index.save_gmsh_geometry_file(ui), state='disabled')
     ui.geo_button.grid(column=1, row=1, padx=4, pady=3, sticky='EW')
     ui.cfd_buttons = (ui.mesh_button, ui.cfd_case_definition_button, ui.geo_button)
     for column in range(2):
@@ -287,6 +305,7 @@ def build_interface(ui):
 
     ui.on_thruster_toggle()
     ui.on_sizing_toggle()
+    ui.on_nozzle_choice_change()
 
 
 def build_results_frame(ui):

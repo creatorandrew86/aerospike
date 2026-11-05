@@ -123,10 +123,34 @@ def process_inputs_on_solve(inputs: dict) -> list[str]:
     if inputs["effective_throat_eps"] is None or inputs["effective_throat_eps"] < 1:
         errors.append("Aerospike effective throat area ratio must be selected and greater than or equal to 1.")
 
-    if inputs["eps"] is None or inputs["eps"] <= 1:
-        errors.append("Area Ratio must be selected and greater than 1.")
-    elif inputs["effective_throat_eps"] is not None and inputs["eps"] <= inputs["effective_throat_eps"]:
-        errors.append("Area Ratio must be greater than the effective throat area ratio.")
+    p_design = inputs.get("design_pressure") if inputs.get("design_pressure") is not None else inputs.get("p_design")
+    unit_p_design = inputs.get("unit_design_pressure") or inputs.get("unit_p_design") or "bar"
+    pr = inputs.get("pressure_ratio") if inputs.get("pressure_ratio") is not None else inputs.get("pr")
+
+    if inputs.get("nozzle_choice") in ("design_pressure", "pressure") or (p_design is not None and inputs.get("eps") is None):
+        if p_design is None or p_design <= 0:
+            errors.append("Design Pressure must be selected and greater than 0.")
+        else:
+            inputs["design_pressure"] = pressure_conversion(p_design, unit_p_design)
+            if inputs.get("Pc") is not None and inputs["Pc"] > 0:
+                inputs["pressure_ratio"] = inputs["Pc"] / inputs["design_pressure"]
+                inputs["pr"] = inputs["pressure_ratio"]
+                pc_bar = inputs["Pc"] / 1e5 if inputs["Pc"] > 1000 else inputs["Pc"]
+                if inputs["pressure_ratio"] <= pc_bar / 2:
+                    errors.append("Design Pressure Ratio (Pc/Pa) must be greater than Pc/2.")
+    elif inputs.get("nozzle_choice") == "pressure_ratio" or (pr is not None and inputs.get("eps") is None):
+        inputs["pressure_ratio"] = inputs["pr"] = pr
+        if pr is None or pr <= 0:
+            errors.append("Design Pressure Ratio must be selected and greater than 0.")
+        elif inputs.get("Pc") is not None and inputs["Pc"] > 0:
+            pc_bar = inputs["Pc"] / 1e5 if inputs["Pc"] > 1000 else inputs["Pc"]
+            if pr <= pc_bar / 2:
+                errors.append("Design Pressure Ratio (Pc/Pa) must be greater than Pc/2.")
+    else:
+        if inputs["eps"] is None or inputs["eps"] <= 1:
+            errors.append("Area Ratio must be selected and greater than 1.")
+        elif inputs["effective_throat_eps"] is not None and inputs["eps"] <= inputs["effective_throat_eps"]:
+            errors.append("Area Ratio must be greater than the effective throat area ratio.")
     
 
     if inputs["truncate_percent"] is None or inputs["truncate_percent"] < 20 or inputs["truncate_percent"] > 100:

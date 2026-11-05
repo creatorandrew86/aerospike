@@ -48,7 +48,16 @@ def generate_aerospike_contour(inputs: dict, on_progress=None) -> tuple[dict, di
         "eps_x": [None] * N,
     }
 
-    
+    # Area ratio from pressure ratio
+    if inputs.get("nozzle_choice") in ("design_pressure", "pressure_ratio") or (inputs.get("eps") is None and inputs.get("pressure_ratio") is not None):
+        try:
+            inputs["eps"] = cea.eps_from_pressure_ratio(inputs)
+        except Exception as e:
+            errors.append(f"Failed to calculate area ratio from pressure ratio: {e}")
+            return {}, {}, errors
+
+    results["eps"] = inputs.get("eps")
+
     # Aerospike Throat Conditions
     try:
         gamma_from_mach = cea.gamma_from_mach(inputs)
