@@ -181,6 +181,25 @@ def generate_aerospike_contour(inputs: dict, on_progress=None) -> tuple[dict, di
 
 
 
+
+def _discharge_coefficient(throat_gap: float, inputs: dict) -> float:
+    """Computes the nozzle discharge coefficient (Cd) due to boundary layer displacement thickness."""
+    v_t, rho_t = cea.effective_throat_conditions(inputs)
+    c = cea._cea_object(inputs)
+    transport = c.get_Throat_Transport(Pc=inputs["Pc"], MR=inputs["MR"])
+    mu_t = float(transport[1]) * 1.0e-4
+
+    d_h = 2.0 * throat_gap
+    re_t = (rho_t * v_t * d_h) / mu_t
+
+    if re_t >= 1e5:
+        cd = 1.0 - 0.15 * (re_t ** -0.2)
+    else:
+        cd = 1.0 - 1.5 * (re_t ** -0.5)
+
+    return float(cd)
+
+
 def sizing_toroidal(inputs: dict, expansion_angle: float, mfr: float | None = None, radius: float | None = None) -> tuple[float, float, float, float]:
     exit_velocity, exit_rho = cea.exit_conditions(inputs)
 
@@ -199,6 +218,15 @@ def sizing_toroidal(inputs: dict, expansion_angle: float, mfr: float | None = No
     throat_area = mfr / (effective_throat_rho * effective_throat_velocity)
 
     # Throat length (flow-normal gap from annular continuity)
+    throat_length = radius - math.sqrt(max(0.0, radius**2 - throat_area / math.pi))
+
+    # Boundary layer discharge coefficient correction
+    try:
+        cd = _discharge_coefficient(throat_length, inputs)
+    except Exception as e:
+        cd = 1.0
+
+    throat_area /= cd
     throat_length = radius - math.sqrt(max(0.0, radius**2 - throat_area / math.pi))
 
     return mfr, radius, throat_area, throat_length
@@ -227,6 +255,15 @@ def sizing_linear(inputs: dict, mfr: float | None = None, width: float | None = 
     throat_area = mfr / (effective_throat_rho * effective_throat_velocity)
 
     # Throat length (flow-normal gap from continuity)
+    throat_length = throat_area / (2 * length)
+
+    # Boundary layer discharge coefficient correction
+    try:
+        cd = _discharge_coefficient(throat_length, inputs)
+    except Exception as e:
+        cd = 1.0
+
+    throat_area /= cd
     throat_length = throat_area / (2 * length)
 
     return mfr, width, length, throat_area, throat_length
