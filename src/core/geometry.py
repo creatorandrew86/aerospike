@@ -42,6 +42,8 @@ def generate_aerospike_contour(inputs: dict, on_progress=None) -> tuple[dict, di
         "length": None,
         "width": None,
         "throat_length": None,
+        "bl_thickness": None,
+        "bl_first_cell": None,
         "ideal_expansion_pressure": None,
         "x": [None] * N,
         "R_x": [None] * N,
@@ -89,19 +91,20 @@ def generate_aerospike_contour(inputs: dict, on_progress=None) -> tuple[dict, di
 
 
     # Sizing the nozzle throat
+    bl_thickness = bl_first_cell = None
     if sizing:
         expansion_angle = exit_pm_angle - entry_pm_angle
 
         if aerospike_type == "toroidal":
             try:
-                mfr, radius, throat_area, throat_length = sizing_toroidal(inputs, expansion_angle, mfr, radius)
+                mfr, radius, throat_area, throat_length, bl_thickness, bl_first_cell = sizing_toroidal(inputs, expansion_angle, mfr, radius)
             except Exception as e:
                 errors.append(f"Toroidal sizing calculation failed with {e}")
                 return {}, {}, errors
 
         if aerospike_type == "linear":
             try:
-                mfr, width, length, throat_area, throat_length = sizing_linear(inputs, mfr, width, length)
+                mfr, width, length, throat_area, throat_length, bl_thickness, bl_first_cell = sizing_linear(inputs, mfr, width, length)
             except Exception as e:
                 errors.append(f"Linear sizing calculation failed with {e}")
                 return {}, {}, errors
@@ -125,18 +128,20 @@ def generate_aerospike_contour(inputs: dict, on_progress=None) -> tuple[dict, di
             beta = (math.pi / 2) - mach_angle - flow_angle
 
             # CEA area ratio
-            eps = cea.eps_from_mach(inputs, mach)
+            eps = inputs["eps"] if i == N - 1 else cea.eps_from_mach(inputs, mach)
 
             # Characteristic line length
             if aerospike_type == "toroidal":
                 C = (mach * eps) / inputs["eps"]
-                characteristic_length = radius * C / (1.0 + math.sqrt(max(0.0, 1.0 - C * math.cos(beta))))
+                radicand = 0.0 if i == N - 1 else max(0.0, 1.0 - C * math.cos(beta))
+                characteristic_length = radius * C / (1.0 + math.sqrt(radicand))
             else:
-                characteristic_length = throat_length * (mach * eps) / inputs["effective_throat_eps"]
+                half_width = width / 2 if sizing else throat_length * inputs["eps"] / inputs["effective_throat_eps"]
+                characteristic_length = half_width * (mach * eps) / inputs["eps"]
 
             # Coordinates
             x = -characteristic_length * math.sin(beta)
-            R = characteristic_length * math.cos(beta)
+            R = radius if (i == N - 1 and aerospike_type == "toroidal" and sizing) else characteristic_length * math.cos(beta)
 
         except Exception as e:
             errors.append(f"Station {i+1} calculation failed with {e}")
@@ -166,6 +171,8 @@ def generate_aerospike_contour(inputs: dict, on_progress=None) -> tuple[dict, di
             results["length"] = length
 
     results["throat_length"] = throat_length
+    results["bl_thickness"] = bl_thickness
+    results["bl_first_cell"] = bl_first_cell
     results["nozzle_size"] = max(results["R_x"])
     results["x_full"], results["R_x_full"], results["eps_x_full"] = results["x"], results["R_x"], results["eps_x"]
 
@@ -182,8 +189,8 @@ def generate_aerospike_contour(inputs: dict, on_progress=None) -> tuple[dict, di
 
 
 
-def _discharge_coefficient(throat_gap: float, inputs: dict) -> float:
-    """Computes the nozzle discharge coefficient (Cd) due to boundary layer displacement thickness."""
+def _boundary_layer_properties(throat_gap: float, inputs: dict) -> tuple[float, float, float]:
+    """Computes the nozzle discharge coefficient (Cd), boundary-layer thickness, and y+=1 first cell height."""
     v_t, rho_t = cea.effective_throat_conditions(inputs)
     c = cea._cea_object(inputs)
     transport = c.get_Throat_Transport(Pc=inputs["Pc"], MR=inputs["MR"])
@@ -194,13 +201,20 @@ def _discharge_coefficient(throat_gap: float, inputs: dict) -> float:
 
     if re_t >= 1e5:
         cd = 1.0 - 0.15 * (re_t ** -0.2)
+        shape_factor = 8.0
+        cf = 0.058 * (re_t ** -0.2)
     else:
         cd = 1.0 - 1.5 * (re_t ** -0.5)
+        shape_factor = 5.0 / 1.7208
+        cf = 0.664 * (re_t ** -0.5)
 
-    return float(cd)
+    bl_thickness = shape_factor * 0.5 * (1.0 - cd) * throat_gap
+    u_tau = v_t * math.sqrt(0.5 * cf)
+    delta_y1 = mu_t / (rho_t * u_tau)
+    return float(cd), float(bl_thickness), float(delta_y1)
 
 
-def sizing_toroidal(inputs: dict, expansion_angle: float, mfr: float | None = None, radius: float | None = None) -> tuple[float, float, float, float]:
+def sizing_toroidal(inputs: dict, expansion_angle: float, mfr: float | None = None, radius: float | None = None) -> tuple[float, float, float, float, float | None, float | None]:
     exit_velocity, exit_rho = cea.exit_conditions(inputs)
 
     # Given radius
@@ -222,17 +236,17 @@ def sizing_toroidal(inputs: dict, expansion_angle: float, mfr: float | None = No
 
     # Boundary layer discharge coefficient correction
     try:
-        cd = _discharge_coefficient(throat_length, inputs)
-    except Exception as e:
-        cd = 1.0
+        cd, bl_thickness, bl_first_cell = _boundary_layer_properties(throat_length, inputs)
+    except Exception:
+        cd, bl_thickness, bl_first_cell = 1.0, None, None
 
     throat_area /= cd
     throat_length = radius - math.sqrt(max(0.0, radius**2 - throat_area / math.pi))
 
-    return mfr, radius, throat_area, throat_length
+    return mfr, radius, throat_area, throat_length, bl_thickness, bl_first_cell
 
 
-def sizing_linear(inputs: dict, mfr: float | None = None, width: float | None = None, length: float | None = None) -> tuple[float, float, float, float, float]:
+def sizing_linear(inputs: dict, mfr: float | None = None, width: float | None = None, length: float | None = None) -> tuple[float, float, float, float, float, float | None, float | None]:
     exit_velocity, exit_rho = cea.exit_conditions(inputs)
 
     # Given length and width
@@ -259,12 +273,12 @@ def sizing_linear(inputs: dict, mfr: float | None = None, width: float | None = 
 
     # Boundary layer discharge coefficient correction
     try:
-        cd = _discharge_coefficient(throat_length, inputs)
-    except Exception as e:
-        cd = 1.0
+        cd, bl_thickness, bl_first_cell = _boundary_layer_properties(throat_length, inputs)
+    except Exception:
+        cd, bl_thickness, bl_first_cell = 1.0, None, None
 
     throat_area /= cd
     throat_length = throat_area / (2 * length)
 
-    return mfr, width, length, throat_area, throat_length
+    return mfr, width, length, throat_area, throat_length, bl_thickness, bl_first_cell
 

@@ -1,7 +1,9 @@
 """Write physical aerospike geometry as Gmsh ``.geo`` source."""
 
-from cfd.geometry import mesh_definition as mesh
-from cfd.geometry.geometry_definition import build_geometry
+from math import hypot, isfinite
+
+from cfd.geometry import mesh
+from cfd.geometry.domain_geometry import build_geometry
 
 
 MAIN_BOUNDARY_LAYER_START = 1001
@@ -26,6 +28,13 @@ def _id_list(entity_id, point_ids):
 
 def generate_geometry_file(case):
     """Return Gmsh source for a sized result from ``generate_aerospike_contour``."""
+    try:
+        delta_y1 = float(case["results"].get("bl_first_cell"))
+    except (TypeError, ValueError) as error:
+        raise ValueError("Boundary-layer first cell height ('bl_first_cell') is required.") from error
+    if not isfinite(delta_y1) or delta_y1 <= 0:
+        raise ValueError("Boundary-layer first cell height ('bl_first_cell') must be positive and finite.")
+
     geometry = build_geometry(case)
     thruster_type = geometry.thruster_type
     scale = geometry.scale
@@ -35,16 +44,14 @@ def generate_geometry_file(case):
     secondary_boundary_layer = geometry.secondary_boundary_layer
     truncated = geometry.truncated
     anchors = geometry.anchors
-    mesh_settings = mesh.NOZZLE_MESH
+    throat_index = geometry.throat_index
 
     point_count = len(spike)
     spike_ids = list(range(1, point_count + 1))
     offset_ids = list(range(MAIN_BOUNDARY_LAYER_START, MAIN_BOUNDARY_LAYER_START + point_count))
     if thruster_type == "cd":
-        if cowl is None or secondary_boundary_layer is None:
-            raise ValueError("CD geometry requires cowl and secondary boundary-layer contours.")
         cowl_ids = list(range(COWL_START, COWL_START + len(cowl)))
-        convergent_start, throat_end = cowl_ids[0], cowl_ids[-1]
+        nozzle_start, throat_end = cowl_ids[0], cowl_ids[-1]
         cowl_top, cowl_back, cowl_bottom = range(cowl_ids[-1] + 1, cowl_ids[-1] + 4)
         cowl_offset_ids = list(range(
             SECONDARY_BOUNDARY_LAYER_START,
@@ -56,31 +63,16 @@ def generate_geometry_file(case):
             "cowl_back": cowl_back,
             "cowl_bottom": cowl_bottom,
         }
-    elif thruster_type == "conv":
-        convergent_start, throat_end, cowl_top, cowl_back, cowl_bottom = range(
-            COWL_START, COWL_START + 5
-        )
-        offset_start, offset_throat = range(
-            SECONDARY_BOUNDARY_LAYER_START, SECONDARY_BOUNDARY_LAYER_START + 2
-        )
-        anchor_ids = {
-            "convergent_start": convergent_start,
-            "throat_end": throat_end,
-            "cowl_top": cowl_top,
-            "cowl_back": cowl_back,
-            "cowl_bottom": cowl_bottom,
-            "offset_start": offset_start,
-            "offset_throat": offset_throat,
-        }
     else:
-        inlet_end, throat_end, cowl_top, cowl_back, cowl_bottom = range(
+        nozzle_start, throat_end, cowl_top, cowl_back, cowl_bottom = range(
             COWL_START, COWL_START + 5
         )
         offset_start, offset_throat = range(
             SECONDARY_BOUNDARY_LAYER_START, SECONDARY_BOUNDARY_LAYER_START + 2
         )
+        start_anchor = "convergent_start" if thruster_type == "conv" else "inlet_end"
         anchor_ids = {
-            "inlet_end": inlet_end,
+            start_anchor: nozzle_start,
             "throat_end": throat_end,
             "cowl_top": cowl_top,
             "cowl_back": cowl_back,
@@ -88,6 +80,7 @@ def generate_geometry_file(case):
             "offset_start": offset_start,
             "offset_throat": offset_throat,
         }
+
     farfield_start = cowl_bottom + 1
     far_right_axis, far_right_top, far_left_top, far_left_axis = range(
         farfield_start, farfield_start + 4
@@ -101,188 +94,149 @@ def generate_geometry_file(case):
     fixed_points = {point_id: anchors[name] for name, point_id in anchor_ids.items()}
     farfield_end_id = spike_ids[-1] if not truncated else offset_ids[-1]
     triangle_offset_end = "103, " if not truncated else ""
+    thruster_loop_curve = "-111, " if throat_index > 0 else ""
     symmetry_curves = "304, 308" if not truncated else "103, 304, 308"
-    cells = {key: mesh.cells(length, scale, mesh_settings, key, 10)
-             for key, length in geometry.lengths.items()}
-    cells["bl"] = mesh.BOUNDARY_LAYER_POINT_COUNT - 1
-    cells["inlet"] = mesh.INLET_POINT_COUNT - 1
+
+    farfield_cell_size = mesh.DEFAULT_FARFIELD_CELL_SIZE * scale
+    cowl_cell_size = mesh.DEFAULT_COWL_CELL_SIZE * scale
+    inlet_cell_number = mesh.DEFAULT_INLET_CELL_NUMBER
+    inlet_cell_size = geometry.lengths["inlet"] / inlet_cell_number
+    inlet_bl_cell_size = 0.9 * inlet_cell_size
+
+    if throat_index > 0:
+        thruster_bl_cell_number = mesh.DEFAULT_THRUSTER_BL_CELL_NUMBER
+        thruster_bl_cell_size = geometry.lengths["thruster"] / thruster_bl_cell_number
+        spike_bl_start_cell_size = thruster_bl_cell_size
+    else:
+        spike_bl_start_cell_size = inlet_bl_cell_size
+
+    secondary_bl_cell_number = max(3, round(geometry.lengths["nozzle"] / spike_bl_start_cell_size))
+    spike_bl_cell_number = mesh.DEFAULT_SPIKE_BL_CELL_NUMBER
+    if not truncated:
+        spike_bl_curve = mesh.bump(
+            "1, 101", geometry.lengths["spike"], spike_bl_start_cell_size, spike_bl_cell_number
+        )
+        spike_bl_end_cell_size = spike_bl_start_cell_size
+    else:
+        spike_bl_curve, spike_bl_end_cell_size = mesh.beta_fixed_n(
+            "1, 101", geometry.lengths["spike"], spike_bl_start_cell_size, spike_bl_cell_number
+        )
+
+    bl_thickness = hypot(boundary_layer[0][0] - spike[0][0], boundary_layer[0][1] - spike[0][1])
+    bl_cell_number, bl_progression = mesh.bl_cells_and_progression(bl_thickness, delta_y1)
+    boundary_layer_curves = "102, 104, 202, 203, 103" if throat_index > 0 else "102, 202, 203, 103"
+
     if thruster_type == "cd":
-        nozzle_geometry = [
+        nozzle_points_and_curves = [
             "// CD Nozzle",
             *(_point(i, point) for i, point in zip(cowl_ids, cowl)),
-            "",
-            "// Cowl",
-            _point(cowl_top, fixed_points[cowl_top]),
-            _point(cowl_back, fixed_points[cowl_back]),
-            _point(cowl_bottom, fixed_points[cowl_bottom]),
             "",
             "// Cowl Boundary Layer",
             *(_point(i, point) for i, point in zip(cowl_offset_ids, secondary_boundary_layer)),
             "",
-            "// Inlet",
-            _line(102, spike_ids[0], offset_ids[0]),
-            _line(10, offset_start, offset_ids[0]),
-            "",
-            "// Offset end line",
-            _line(103, spike_ids[-1], offset_ids[-1]),
-            "",
             "// CD Nozzle",
             _id_list(2, cowl_ids),
-            _line(202, convergent_start, offset_start),
+            _line(202, nozzle_start, offset_start),
             _id_list(201, cowl_offset_ids),
             _line(203, throat_end, offset_throat),
-            "",
-            "// Cowl",
-            _line(301, throat_end, cowl_top),
-            _line(302, cowl_top, cowl_back),
-            _line(303, cowl_back, cowl_bottom),
-        ]
-        triangle_loop = (
-            f"Curve Loop(1) = {{304, 305, 306, 307, 308, {triangle_offset_end}-101, -10, 201, -203, 301, 302, 303}};"
-        )
-        cowl_surface = [
-            "",
-            "// Quad mesh surface - Cowl Boundary Layer",
-            "Curve Loop(103) = {2, 203, -201, -202};",
-            "Plane Surface(103) = {103};",
-            f"Transfinite Surface {{103}} = {{{convergent_start}, {throat_end}, {offset_throat}, {offset_start}}};",
-            "Recombine Surface {103};",
-        ]
-        inlet_curves = "102, 10, 202"
-        boundary_layer_curves = "102, 103"
-        nozzle_mesh = [
-            "// Inlet",
-            mesh.transfinite("10", cells["inlet"], "Bump", 0.5),
-            "",
-            "// Cowl boundary layer",
-            mesh.transfinite("202, 203", cells["bl"], "Progression",
-                             mesh.progression(mesh_settings, "bl", cells["bl"])),
-            "",
-            "// CD Nozzle",
-            mesh.transfinite("2, 201", 2 * cells["nozzle"], "Progression",
-                             mesh.progression(mesh_settings, "nozzle", 2 * cells["nozzle"])),
-            "",
-            "// Cowl",
-            *(mesh.transfinite(str(curve), cells[f"cowl_{curve}"], "Progression",
-                               mesh.progression(mesh_settings, f"cowl_{curve}", cells[f"cowl_{curve}"])) for curve in (301, 302, 303)),
-        ]
-    elif thruster_type == "conv":
-        nozzle_geometry = [
-            "// Convergent Nozzle",
-            _point(convergent_start, fixed_points[convergent_start]),
-            _point(throat_end, fixed_points[throat_end]),
-            "",
-            "// Cowl",
-            _point(cowl_top, fixed_points[cowl_top]),
-            _point(cowl_back, fixed_points[cowl_back]),
-            _point(cowl_bottom, fixed_points[cowl_bottom]),
-            "",
-            "// Cowl Boundary Layer",
-            _point(offset_start, fixed_points[offset_start]),
-            _point(offset_throat, fixed_points[offset_throat]),
-            "",
-            "// Inlet",
-            _line(102, spike_ids[0], offset_ids[0]),
-            _line(10, offset_start, offset_ids[0]),
-            "",
-            "// Offset end line",
-            _line(103, spike_ids[-1], offset_ids[-1]),
-            "",
-            "// Convergent Nozzle",
-            _line(2, convergent_start, throat_end),
-            _line(202, convergent_start, offset_start),
-            _line(201, offset_start, offset_throat),
-            _line(203, throat_end, offset_throat),
-            "",
-            "// Cowl",
-            _line(301, throat_end, cowl_top),
-            _line(302, cowl_top, cowl_back),
-            _line(303, cowl_back, cowl_bottom),
-        ]
-        triangle_loop = (
-            f"Curve Loop(1) = {{304, 305, 306, 307, 308, {triangle_offset_end}-101, -10, 201, -203, 301, 302, 303}};"
-        )
-        cowl_surface = [
-            "",
-            "// Quad mesh surface - Cowl Boundary Layer",
-            "Curve Loop(103) = {2, 203, -201, -202};",
-            "Plane Surface(103) = {103};",
-            f"Transfinite Surface {{103}} = {{{convergent_start}, {throat_end}, {offset_throat}, {offset_start}}};",
-            "Recombine Surface {103};",
-        ]
-        inlet_curves = "102, 10, 202"
-        boundary_layer_curves = "102, 202, 203, 103"
-        nozzle_mesh = [
-            "// Inlet",
-            mesh.transfinite("10", cells["inlet"], "Bump", 0.5),
-            "",
-            "// Convergent Nozzle",
-            mesh.transfinite("2, 201", cells["nozzle"], "Progression",
-                             mesh.progression(mesh_settings, "nozzle", cells["nozzle"])),
-            "",
-            "// Cowl",
-            *(mesh.transfinite(str(curve), cells[f"cowl_{curve}"], "Progression",
-                               mesh.progression(mesh_settings, f"cowl_{curve}", cells[f"cowl_{curve}"])) for curve in (301, 302, 303)),
         ]
     else:
-        nozzle_geometry = [
-            "// Buffered throat",
-            _point(inlet_end, fixed_points[inlet_end]),
+        nozzle_label = "Convergent Nozzle" if thruster_type == "conv" else "Buffered throat"
+        nozzle_points_and_curves = [
+            f"// {nozzle_label}",
+            _point(nozzle_start, fixed_points[nozzle_start]),
             _point(throat_end, fixed_points[throat_end]),
-            "",
-            "// Cowl",
-            _point(cowl_top, fixed_points[cowl_top]),
-            _point(cowl_back, fixed_points[cowl_back]),
-            _point(cowl_bottom, fixed_points[cowl_bottom]),
             "",
             "// Cowl Boundary Layer",
             _point(offset_start, fixed_points[offset_start]),
             _point(offset_throat, fixed_points[offset_throat]),
             "",
-            "// Inlet",
-            _line(102, spike_ids[0], offset_ids[0]),
-            _line(10, offset_start, offset_ids[0]),
-            "",
-            "// Offset end line",
-            _line(103, spike_ids[-1], offset_ids[-1]),
-            "",
-            "// Buffered throat",
-            _line(2, inlet_end, throat_end),
-            _line(202, inlet_end, offset_start),
+            f"// {nozzle_label}",
+            _line(2, nozzle_start, throat_end),
+            _line(202, nozzle_start, offset_start),
             _line(201, offset_start, offset_throat),
             _line(203, throat_end, offset_throat),
-            "",
-            "// Cowl",
-            _line(301, throat_end, cowl_top),
-            _line(302, cowl_top, cowl_back),
-            _line(303, cowl_back, cowl_bottom),
-        ]
-        triangle_loop = (
-            f"Curve Loop(1) = {{304, 305, 306, 307, 308, {triangle_offset_end}-101, -10, 201, -203, 301, 302, 303}};"
-        )
-        cowl_surface = [
-            "",
-            "// Quad mesh surface - Cowl Boundary Layer",
-            "Curve Loop(103) = {2, 203, -201, -202};",
-            "Plane Surface(103) = {103};",
-            f"Transfinite Surface {{103}} = {{{inlet_end}, {throat_end}, {offset_throat}, {offset_start}}};",
-            "Recombine Surface {103};",
-        ]
-        inlet_curves = "102, 10, 202"
-        boundary_layer_curves = "102, 202, 203, 103"
-        nozzle_mesh = [
-            "// Inlet",
-            mesh.transfinite("10", cells["inlet"], "Bump", 0.5),
-            "",
-            "// Buffered throat",
-            mesh.transfinite("2, 201", 2 * cells["nozzle"], "Progression", 1),
-            "",
-            "// Cowl",
-            *(mesh.transfinite(str(curve), cells[f"cowl_{curve}"], "Progression",
-                               mesh.progression(mesh_settings, f"cowl_{curve}", cells[f"cowl_{curve}"])) for curve in (301, 302, 303)),
         ]
 
-    fluid_surfaces = "1, 101, 103"
+    nozzle_geometry = [
+        *nozzle_points_and_curves,
+        "",
+        "// Cowl",
+        _point(cowl_top, fixed_points[cowl_top]),
+        _point(cowl_back, fixed_points[cowl_back]),
+        _point(cowl_bottom, fixed_points[cowl_bottom]),
+        _line(301, throat_end, cowl_top),
+        _line(302, cowl_top, cowl_back),
+        _line(303, cowl_back, cowl_bottom),
+        "",
+        "// Inlet",
+        _line(102, spike_ids[0], offset_ids[0]),
+        _line(10, offset_start, offset_ids[0]),
+        "",
+        "// Offset end line",
+        _line(103, spike_ids[-1], offset_ids[-1]),
+    ]
+
+    triangle_loop = (
+        f"Curve Loop(1) = {{304, 305, 306, 307, 308, {triangle_offset_end}-101, "
+        f"{thruster_loop_curve}-10, 201, -203, 301, 302, 303}};"
+    )
+    cowl_surface = [
+        "",
+        "// Quad mesh surface - Cowl Boundary Layer",
+        "Curve Loop(103) = {2, 203, -201, -202};",
+        "Plane Surface(103) = {103};",
+        f"Transfinite Surface {{103}} = {{{nozzle_start}, {throat_end}, {offset_throat}, {offset_start}}};",
+        "Recombine Surface {103};",
+    ]
+
+    if throat_index > 0:
+        spike_splines = [
+            _id_list(11, spike_ids[:throat_index + 1]),
+            "",
+            _id_list(111, offset_ids[:throat_index + 1]),
+            "",
+            _id_list(1, spike_ids[throat_index:]),
+            "",
+            _id_list(101, offset_ids[throat_index:]),
+            "",
+            _line(104, spike_ids[throat_index], offset_ids[throat_index]),
+        ]
+        spike_bl_surfaces = [
+            "// Quad mesh surface - Thruster Boundary Layer",
+            "Curve Loop(102) = {111, -104, -11, 102};",
+            "Plane Surface(102) = {102};",
+            "",
+            "Transfinite Surface {102};",
+            "Recombine Surface {102};",
+            "",
+            "// Quad mesh surface - Boundary Layer",
+            "Curve Loop(101) = {101, -103, -1, 104};",
+            "Plane Surface(101) = {101};",
+            "",
+            "Transfinite Surface {101};",
+            "Recombine Surface {101};",
+        ]
+        fluid_surfaces = "1, 101, 102, 103"
+        spike_bc_curves = "11, 1"
+        thruster_bl_mesh = [mesh.transfinite("11, 111", thruster_bl_cell_number, "Progression", 1)]
+    else:
+        spike_splines = [
+            _id_list(1, spike_ids),
+            "",
+            _id_list(101, offset_ids),
+        ]
+        spike_bl_surfaces = [
+            "// Quad mesh surface - Boundary Layer",
+            "Curve Loop(101) = {101, -103, -1, 102};",
+            "Plane Surface(101) = {101};",
+            "",
+            "Transfinite Surface {101};",
+            "Recombine Surface {101};",
+        ]
+        fluid_surfaces = "1, 101, 103"
+        spike_bc_curves = "1"
+        thruster_bl_mesh = []
 
     lines = [
         "// Aerospike Simulation Geometry",
@@ -299,9 +253,7 @@ def generate_geometry_file(case):
         *(_point(i, point) for i, point in zip(offset_ids, boundary_layer)),
         "",
         "",
-        _id_list(1, spike_ids),
-        "",
-        _id_list(101, offset_ids),
+        *spike_splines,
         "",
         "",
         *nozzle_geometry,
@@ -328,12 +280,7 @@ def generate_geometry_file(case):
         "Plane Surface(1) = {1};",
         "",
         "",
-        "// Quad mesh surface - Boundary Layer",
-        "Curve Loop(101) = {101, -103, -1, 102};",
-        "Plane Surface(101) = {101};",
-        "",
-        "Transfinite Surface {101};",
-        "Recombine Surface {101};",
+        *spike_bl_surfaces,
         *cowl_surface,
         "",
         "// Flow domain",
@@ -349,27 +296,56 @@ def generate_geometry_file(case):
         'Physical Curve("farLeft", 53) = {305};',
         "",
         "// Walls",
-        'Physical Curve("spike", 54) = {1};',
+        f'Physical Curve("spike", 54) = {{{spike_bc_curves}}};',
         'Physical Curve("cowl", 55) = {2, 301, 302, 303};',
         "",
         "// Inlet",
-        f'Physical Curve("inlet", 56) = {{{inlet_curves}}};',
+        'Physical Curve("inlet", 56) = {102, 10, 202};',
         "",
         "",
         "// ---------------------------------------- Mesh Definition ----------------------------------------",
         "",
         "",
         "// Boundary Layer",
-        mesh.transfinite("1, 101", cells["spike"], "Progression", mesh.progression(mesh_settings, "spike", cells["spike"])),
-        mesh.transfinite(boundary_layer_curves, cells["bl"], "Progression",
-                         mesh.progression(mesh_settings, "bl", cells["bl"])),
+        *thruster_bl_mesh,
+        spike_bl_curve,
+        mesh.transfinite(boundary_layer_curves, bl_cell_number, "Progression", bl_progression),
         "",
-        *nozzle_mesh,
+        "// Inlet & Nozzle",
+        mesh.transfinite("10", inlet_cell_number, "Progression", 1),
+        mesh.transfinite("2, 201", secondary_bl_cell_number, "Progression", 1),
         "",
+        "// Cowl",
+        mesh.beta("301", geometry.lengths["cowl_301"], delta_y1, cowl_cell_size, 1.1, min_cells=3),
+        *(
+            mesh.transfinite(
+                str(curve),
+                max(3, round(geometry.lengths[f"cowl_{curve}"] / cowl_cell_size)),
+                "Progression",
+                1,
+            )
+            for curve in (302, 303)
+        ),
         "",
         "// Farfield",
-        *(mesh.transfinite(str(curve), cells[f"far_{curve}"], "Progression",
-                           mesh.progression(mesh_settings, f"far_{curve}", cells[f"far_{curve}"])) for curve in (304, 305, 306, 307, 308)),
+        mesh.beta("304", geometry.lengths["far_304"], cowl_cell_size, farfield_cell_size, 1.2, min_cells=10),
+        *(
+            mesh.transfinite(
+                str(curve),
+                max(10, round(geometry.lengths[f"far_{curve}"] / farfield_cell_size)),
+                "Progression",
+                1,
+            )
+            for curve in (305, 306, 307)
+        ),
+        mesh.beta(
+            "-308",
+            geometry.lengths["far_308"],
+            delta_y1 if not truncated else spike_bl_end_cell_size,
+            farfield_cell_size,
+            1.1 if not truncated else 1.02,
+            min_cells=10,
+        ),
         "",
     ]
     return "\n".join(lines)

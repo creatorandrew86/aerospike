@@ -1,4 +1,4 @@
-from cfd.geometry.geometry_definition import inlet_direction
+from cfd.geometry.domain_geometry import inlet_direction
 
 
 _SIZING_FIELDS = {

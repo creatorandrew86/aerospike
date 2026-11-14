@@ -2,7 +2,7 @@
 
 from math import cos, hypot, isfinite, radians, sin, tan
 
-from cfd.geometry.conv_nozzle import corner_fillet
+from cfd.geometry.conv_thruster import corner_fillet
 
 
 CONVERGENT_NOZZLE_ANGLE = 45

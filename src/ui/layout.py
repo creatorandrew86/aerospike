@@ -479,7 +479,7 @@ def build_performance_frame(ui):
     row_frame.grid(column=0, row=0, sticky="W", padx=(0, 4), pady=(1, 2))
 
     tk.Label(row_frame, text="Ideal Expansion : ", font=("Arial", 9), **label_style).pack(side="left")
-    tk.Label(row_frame, text=f"H={h_design:,.0f} m, ", font=("Arial", 9, "bold"), **label_style).pack(side="left")
+    tk.Label(row_frame, text=f"H={h_design / 1e3:.2f} km, ", font=("Arial", 9, "bold"), **label_style).pack(side="left")
     tk.Label(row_frame, text="P", font=("Arial", 9, "bold"), **label_style).pack(side="left")
     tk.Label(row_frame, text="atm", font=("Arial", 6, "bold"), **label_style).pack(side="left", pady=(3, 0))
     tk.Label(row_frame, text=f"={p_bar:.3f} bar", font=("Arial", 9, "bold"), **label_style).pack(side="left")

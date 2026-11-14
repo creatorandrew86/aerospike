@@ -1,3 +1,4 @@
+import csv
 import importlib
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -22,16 +23,12 @@ class AutoScrollbar(ttk.Scrollbar):
         super().set(lo, hi)
 
 
-def _header_cell(parent, col, parts, bg, anchor="e"):
-    cell = tk.Frame(parent, bg=bg, padx=5, pady=4)
-    cell.grid(column=col, row=0, sticky="NSEW", padx=(0 if col == 0 else 1, 0), pady=(0, 1))
-    inner = tk.Frame(cell, bg=bg)
-    inner.pack(anchor=anchor)
+def _pack_parts(parent, parts, bg, size=9):
     for text, is_sub in parts:
         tk.Label(
-            inner,
+            parent,
             text=text,
-            font=("Arial", 7, "bold") if is_sub else ("Arial", 9, "bold"),
+            font=("Arial", max(7, size - 2), "bold") if is_sub else ("Arial", size, "bold"),
             bg=bg,
             fg="#111827",
             bd=0,
@@ -39,6 +36,14 @@ def _header_cell(parent, col, parts, bg, anchor="e"):
             pady=0,
             highlightthickness=0,
         ).pack(side="left", pady=(3, 0) if is_sub else 0)
+
+
+def _header_cell(parent, col, parts, bg, anchor="e"):
+    cell = tk.Frame(parent, bg=bg, padx=5, pady=4)
+    cell.grid(column=col, row=0, sticky="NSEW", padx=(0 if col == 0 else 1, 0), pady=(0, 1))
+    inner = tk.Frame(cell, bg=bg)
+    inner.pack(anchor=anchor)
+    _pack_parts(inner, parts, bg)
 
 
 def _propellant_title(definition):
@@ -90,7 +95,7 @@ def _get_selected_methods(inputs, angelino, design_calibrated, bell_ideal, bell_
             "name": "Angelino Modified",
             "legend": "1D-Modified Aerospike",
             "color": "#dc2626",
-            "linestyle": "--",
+            "linestyle": "-",
             "module": _models_modules["angelino"],
         })
     if design_calibrated:
@@ -98,7 +103,7 @@ def _get_selected_methods(inputs, angelino, design_calibrated, bell_ideal, bell_
             "key": "design_calibrated",
             "name": "Design Calibrated",
             "legend": "1D-Design-Calibrated Aerospike",
-            "color": "#1f77b4",
+            "color": "#1d4ed8",
             "linestyle": "-",
             "module": _models_modules["design_calibrated"],
         })
@@ -107,7 +112,7 @@ def _get_selected_methods(inputs, angelino, design_calibrated, bell_ideal, bell_
             "key": "bell_ideal",
             "name": "Bell (Ideal Expansion)",
             "legend": r"1D-Ideal (Variable $\varepsilon$)",
-            "color": "#2ca02c",
+            "color": "#16a34a",
             "linestyle": ":",
             "module": _models_modules["bell_ideal"],
         })
@@ -116,8 +121,8 @@ def _get_selected_methods(inputs, angelino, design_calibrated, bell_ideal, bell_
             "key": "bell_eps",
             "name": "Bell (Constant \u03b5)",
             "legend": f"1D-Bell ($\\varepsilon = {eps_val:.1f}$, unseparated)",
-            "color": "#9467bd",
-            "linestyle": "-.",
+            "color": "#d97706",
+            "linestyle": "-",
             "module": _models_modules["bell_eps"],
         })
     return selected
@@ -154,7 +159,27 @@ def _get_conditions(ui, inputs, results):
     return mode, given_values, conditions
 
 
-def _save_comparison_tables(all_data, parent):
+def _write_comparison_tables(file_path, col_names, tables_data):
+    is_csv = file_path.lower().endswith(".csv")
+    with open(file_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f) if is_csv else None
+        for title, rows in tables_data:
+            if is_csv:
+                writer.writerow([title])
+                writer.writerow(col_names)
+                writer.writerows(rows)
+                writer.writerow([])
+            else:
+                widths = [max(len(col_names[i]), *(len(r[i]) for r in rows)) + 2 for i in range(len(col_names))]
+                f.write(f"=== {title} ===\n")
+                f.write(" ".join(f"{col_names[i]:<{widths[i]}}" if i == 0 else f"{col_names[i]:>{widths[i]}}" for i in range(len(col_names))) + "\n")
+                f.write("-" * (sum(widths) + len(widths) - 1) + "\n")
+                for r in rows:
+                    f.write(" ".join(f"{r[i]:<{widths[i]}}" if i == 0 else f"{r[i]:>{widths[i]}}" for i in range(len(col_names))) + "\n")
+                f.write("\n")
+
+
+def _save_comparison_tables(col_names, tables_data, parent):
     file_path = filedialog.asksaveasfilename(
         parent=parent,
         defaultextension=".csv",
@@ -164,22 +189,7 @@ def _save_comparison_tables(all_data, parent):
     if not file_path:
         return
     try:
-        is_csv = file_path.lower().endswith(".csv")
-        with open(file_path, "w", encoding="utf-8") as f:
-            for method_name, rows in all_data.items():
-                if is_csv:
-                    f.write(f'"{method_name}"\n')
-                    f.write("Condition,Altitude (km),P_atm (bar),Thrust (kN),CF,Isp (s)\n")
-                    for r in rows:
-                        f.write(f'"{r[0]}",{r[1]},{r[2]},{r[3]},{r[4]},{r[5]}\n')
-                    f.write("\n")
-                else:
-                    f.write(f"=== {method_name} ===\n")
-                    f.write(f"{'Condition':<18} {'Altitude (km)':>14} {'P_atm (bar)':>12} {'Thrust (kN)':>14} {'CF':>8} {'Isp (s)':>10}\n")
-                    f.write("-" * 81 + "\n")
-                    for r in rows:
-                        f.write(f"{r[0]:<18} {r[1]:>14} {r[2]:>12} {r[3]:>14} {r[4]:>8} {r[5]:>10}\n")
-                    f.write("\n")
+        _write_comparison_tables(file_path, col_names, tables_data)
         messagebox.showinfo("Saved", "Performance comparison table saved successfully.", parent=parent)
     except Exception as e:
         messagebox.showerror("Error", f"Failed to save file: {e}", parent=parent)
@@ -218,8 +228,6 @@ def generate_table(
 
     window = tk.Toplevel(ui.root)
     window.title("Performance Comparison")
-    window.geometry("540x320")
-    window.resizable(False, False)
 
     bottom_bar = ttk.Frame(window, padding=(10, 0, 10, 8))
     bottom_bar.pack(fill="x", side="bottom")
@@ -247,69 +255,77 @@ def generate_table(
     canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_item, width=e.width))
     tables_frame.columnconfigure(0, weight=1)
 
-    all_saved_data = {}
-    for table_idx, method in enumerate(methods):
+    thrust_rows, isp_rows, cf_rows = [], [], []
+    for label, p_atm, h_val in conditions:
+        h_str = f"{h_val:.2f}" if h_val is not None else "—"
+        p_str = f"{p_atm / 1e5:.3f}"
+        t_row, i_row, c_row = [label, h_str, p_str], [label, h_str, p_str], [label, h_str, p_str]
+        for method in methods:
+            cf, f_total, isp, _ = method["module"].thrust(inputs, calc_results, p_atm)
+            t_row.append(f"{f_total / 1e3:.2f}" if is_sized else "—")
+            i_row.append(f"{isp:.1f}")
+            c_row.append(f"{cf:.3f}")
+        thrust_rows.append(t_row)
+        isp_rows.append(i_row)
+        cf_rows.append(c_row)
+
+    tables = [
+        ("Thrust (kN)", [("Thrust (kN)", False)], thrust_rows),
+        ("Isp (s)", [("I", False), ("sp", True), (" (s)", False)], isp_rows),
+        ("CF", [("C", False), ("F", True)], cf_rows),
+    ]
+    headers = [
+        ([("#", False)], "w"),
+        ([("H", False), (" (km)", False)], "e"),
+        ([("P", False), ("atm", True), (" (bar)", False)], "e"),
+        *(([(m["name"], False)], "e") for m in methods),
+    ]
+    col_names = ["Condition", "H (km)", "P_atm (bar)", *(m["name"] for m in methods)]
+
+    for table_idx, (_, title_parts, rows) in enumerate(tables):
+        title_frame = tk.Frame(tables_frame, bg=bg_parent)
+        title_frame.grid(column=0, row=table_idx * 2, sticky="W", pady=(4 if table_idx > 0 else 0, 4))
+        _pack_parts(title_frame, title_parts, bg_parent, size=10)
+
         table = tk.Frame(tables_frame, bg=line_color, bd=0)
-        table.grid(column=0, row=table_idx, sticky="EW", pady=(0, 10))
+        table.grid(column=0, row=table_idx * 2 + 1, sticky="EW", pady=(0, 18 if table_idx < 2 else 4))
 
-        for col, weight in enumerate((4, 2, 3, 3, 2, 3)):
-            table.columnconfigure(col, weight=weight)
+        for col in range(len(headers)):
+            table.columnconfigure(col, weight=2 if col == 1 else 3)
 
-        headers = [
-            ([(method["name"], False)], "w"),
-            ([("h", False), (" (km)", False)], "e"),
-            ([("P", False), ("atm", True), (" (bar)", False)], "e"),
-            ([("Thrust(kN)", False)], "e"),
-            ([("C", False), ("F", True)], "e"),
-            ([("I", False), ("sp", True), ("(s)", False)], "e"),
-        ]
         for col, (parts, anchor) in enumerate(headers):
             _header_cell(table, col, parts, bg_parent, anchor)
 
-        rows_to_save = []
-        for row_idx, (label, p_atm, h_val) in enumerate(conditions, start=1):
-            cf, f_total, isp, _ = method["module"].thrust(inputs, calc_results, p_atm)
-            thrust_str = f"{f_total / 1e3:.2f}" if is_sized else "—"
-            h_str = f"{h_val:.2f}" if h_val is not None else "—"
-            p_str = f"{p_atm / 1e5:.3f}"
-            cf_str = f"{cf:.3f}"
-            isp_str = f"{isp:.1f}"
-
-            rows_to_save.append((label, h_str, p_str, thrust_str, cf_str, isp_str))
-
-            row_values = [
-                (label, ("Arial", 9, "bold"), "w"),
-                (h_str, ("Arial", 9), "e"),
-                (p_str, ("Arial", 9), "e"),
-                (thrust_str, ("Arial", 9), "e"),
-                (cf_str, ("Arial", 9), "e"),
-                (isp_str, ("Arial", 9), "e"),
-            ]
-            for col, (val, fnt, anchor) in enumerate(row_values):
+        for row_idx, row_vals in enumerate(rows, start=1):
+            for col, val in enumerate(row_vals):
                 cell = tk.Frame(table, bg=bg_parent, padx=5, pady=4)
                 cell.grid(
                     column=col,
                     row=row_idx,
                     sticky="NSEW",
                     padx=(0 if col == 0 else 1, 0),
-                    pady=(0, 0 if row_idx == len(conditions) else 1),
+                    pady=(0, 0 if row_idx == len(rows) else 1),
                 )
                 tk.Label(
                     cell,
                     text=val,
-                    font=fnt,
+                    font=("Arial", 9, "bold") if col == 0 else ("Arial", 9),
                     bg=bg_parent,
                     fg="#111827",
                     bd=0,
                     padx=0,
                     pady=0,
                     highlightthickness=0,
-                ).pack(anchor=anchor)
+                ).pack(anchor="w" if col == 0 else "e")
 
-        all_saved_data[method["name"]] = rows_to_save
-
-    save_btn = ttk.Button(bottom_bar, text="Save As", command=lambda: _save_comparison_tables(all_saved_data, window))
+    save_data = [(title, rows) for title, _, rows in tables]
+    save_btn = ttk.Button(bottom_bar, text="Save As", command=lambda: _save_comparison_tables(col_names, save_data, window))
     save_btn.pack(side="right")
+
+    window.update_idletasks()
+    width = max(540, tables_frame.winfo_reqwidth() + 42)
+    height = min(560, max(320, tables_frame.winfo_reqheight() + 56))
+    window.geometry(f"{width}x{height}")
 
 
 def generate_graph(
@@ -340,6 +356,7 @@ def generate_graph(
 
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
     from matplotlib.figure import Figure
+    from scipy.interpolate import PchipInterpolator
 
     mode, given_values, _ = _get_conditions(ui, inputs, calc_results)
     is_pressure = mode == "Pressure"
@@ -476,6 +493,7 @@ def generate_graph(
             y_label = y_cf_label
             plot_title = f"Thrust Coefficient vs {x_selected}"
 
+        x_plot = np.linspace(active_x[0], active_x[-1], 300) if len(active_x) >= 2 else active_x
         for method, line_thrust, line_isp, line_cf in active_series:
             if metric == "thrust":
                 y_data = line_thrust
@@ -484,13 +502,14 @@ def generate_graph(
             else:
                 y_data = line_cf
 
+            y_plot = PchipInterpolator(active_x, y_data)(x_plot) if len(active_x) >= 2 else y_data
             ax.plot(
-                active_x,
-                y_data,
+                x_plot,
+                y_plot,
                 label=method["legend"],
                 color=method["color"],
                 linestyle=method["linestyle"],
-                linewidth=1.8,
+                linewidth=2.0 if method["linestyle"] == ":" else 1.8,
             )
 
         ax.set_xlabel(x_label, fontsize=9)

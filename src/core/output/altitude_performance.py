@@ -212,6 +212,8 @@ def generate_altitude_performance_graph(ui):
 
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
     from matplotlib.figure import Figure
+    import numpy as np
+    from scipy.interpolate import PchipInterpolator
 
     raw_text = ui.input_analysis.get().strip() if hasattr(ui, "input_analysis") else ""
     raw_mode = ui.analysis_type.get() if hasattr(ui, "analysis_type") else "Altitude"
@@ -403,7 +405,12 @@ def generate_altitude_performance_graph(ui):
             user_y = [pt["cf"] for pt in chosen_pts if (pt["p"] if is_p else pt["h"]) is not None]
             curve_label = "$C_F$"
 
-        ax.plot(line_x, curve_y, color="black", linewidth=1.6, label=curve_label, zorder=2)
+        if len(line_x) >= 2:
+            x_plot = np.linspace(line_x[0], line_x[-1], 300)
+            y_plot = PchipInterpolator(line_x, curve_y)(x_plot)
+        else:
+            x_plot, y_plot = line_x, curve_y
+        ax.plot(x_plot, y_plot, color="black", linewidth=1.6, label=curve_label, zorder=2)
         if x_des is not None:
             ax.scatter([x_des], [des_y], color="#dc2626", marker="o", s=45, zorder=5, label="Design Point")
         ax.scatter([x_sl], [sl_y], color="#2563eb", marker="s", s=45, zorder=5, label="Sea Level (SL)")
