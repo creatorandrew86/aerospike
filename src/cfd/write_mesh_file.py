@@ -29,7 +29,7 @@ def write_mesh(case, path, mesh_format):
         geo_path.write_text(generate_geometry_file(case), encoding="utf-8")
 
         quality = None
-        gmsh.initialize()
+        gmsh.initialize(interruptible=False)
         try:
             gmsh.open(str(geo_path))
             gmsh.model.mesh.generate(2)

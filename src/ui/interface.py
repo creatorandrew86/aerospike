@@ -111,12 +111,16 @@ class Interface:
         self.on_thruster_toggle()
 
 
-    def on_run(self):
-        self.on_solve()
+    def sync_post_solve(self):
         state = 'normal' if self.case["results"].get("x") else 'disabled'
         self.contour_button.configure(state=state)
         self.graph_button.configure(state=state)
         self.on_thruster_toggle()
+
+
+    def on_run(self):
+        self.on_solve()
+        self.sync_post_solve()
 
 
     def on_thruster_toggle(self):

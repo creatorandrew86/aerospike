@@ -21,7 +21,7 @@ def _mach_angle(mach: float) -> float:
 
 
 
-def generate_aerospike_contour(inputs: dict, on_progress=None) -> tuple[dict, dict, list[str]]:
+def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
     errors = []
 
     truncate_percent     = inputs["truncate_percent"] / 100
@@ -151,9 +151,6 @@ def generate_aerospike_contour(inputs: dict, on_progress=None) -> tuple[dict, di
         results["x"][i]     = x
         results["R_x"][i]   = R
         results["eps_x"][i] = eps
-        
-        if on_progress:
-            on_progress((i + 1) / N)
 
 
     # Non-dimensionalization of coordinates

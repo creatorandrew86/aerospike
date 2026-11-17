@@ -79,15 +79,16 @@ def save_mesh_file(ui):
         return
     if not Path(mesh_path).suffix:
         mesh_path += mesh_format
-    try:
-        from cfd.write_mesh_file import write_mesh
-        from ui import layout
+    from cfd.write_mesh_file import write_mesh
+    from ui import layout
 
-        write_mesh(ui.case, mesh_path, mesh_format)
+    def done(_):
         layout.reset_mesh_quality_frame(ui, "Mesh ready.")
         messagebox.showinfo("Mesh Saved", "Mesh successfully saved.")
-    except Exception as error:
-        messagebox.showerror("Error", f"An error occurred while saving the mesh: {error}")
+
+    layout.run_with_loading_circle(
+        ui, "mesh_loading_circle", lambda: write_mesh(ui.case, mesh_path, mesh_format), done
+    )
 
 
 def show_mesh_quality(ui):

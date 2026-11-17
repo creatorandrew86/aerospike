@@ -31,29 +31,27 @@ def on_solve():
         return
 
     ui.case["definition"] = definition
-    def update_progress(frac):
-        ui.progress["value"] = frac * 100
-        ui.progress_label.config(text=f"{frac * 100:.0f}%")
-        ui.root.update()
 
-    update_progress(0)
-    ui.progress.grid()
-    ui.progress_label.grid()
-    results, cfd_setup, solver_errors = geometry.generate_aerospike_contour(inputs, update_progress)
-    ui.progress.grid_remove()
-    ui.progress_label.grid_remove()
-    if solver_errors:
-        ui.case["results"] = {}
-        ui.case["cfd"]["setup"] = {}
-        ui.case["errors"] = solver_errors
-        index.show_errors(ui)
-        return
+    def finish(output):
+        results, cfd_setup, solver_errors = output
+        if solver_errors:
+            ui.case["results"] = {}
+            ui.case["cfd"]["setup"] = {}
+            ui.case["errors"] = solver_errors
+            ui.sync_post_solve()
+            index.show_errors(ui)
+            return
 
-    ui.case["definition"]["eps"] = inputs["eps"]
-    ui.case["results"] = results
-    ui.case["cfd"]["setup"] = cfd_setup
-    layout.build_results_frame(ui)
-    layout.build_performance_frame(ui)
+        ui.case["definition"]["eps"] = inputs["eps"]
+        ui.case["results"] = results
+        ui.case["cfd"]["setup"] = cfd_setup
+        layout.build_results_frame(ui)
+        layout.build_performance_frame(ui)
+        ui.sync_post_solve()
+
+    layout.run_with_loading_circle(
+        ui, "run_loading_circle", lambda: geometry.generate_aerospike_contour(inputs), finish
+    )
 
 if __name__ == "__main__":
     root = tk.Tk()

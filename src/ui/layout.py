@@ -1,5 +1,7 @@
+import math
+import threading
 import tkinter as tk
-from tkinter import font, ttk
+from tkinter import font, messagebox, ttk
 
 from core import cea, input as core_input
 from core.output import index
@@ -28,8 +30,110 @@ def _create_tooltip(widget, text):
     widget.bind("<Destroy>", hide)
 
 
+def _create_loading_circle(parent, bg, size=20):
+    blank = tk.PhotoImage(width=size, height=size)
+    label = tk.Label(parent, image=blank, bg=bg, bd=0, highlightthickness=0)
+    label._blank_image = blank
+    label._bg_name = bg
+    return label
+
+
+def _loading_circle_frames(widget, bg, size=20):
+    root = widget.winfo_toplevel()
+    if hasattr(root, "_loading_frames"):
+        return root._loading_frames
+    bg_rgb = tuple(c >> 8 for c in widget.winfo_rgb(bg))
+    track, arc = (210, 214, 220), (95, 103, 115)
+    cx = cy = (size - 1) / 2.0
+    r_mid, half_w, sweep = 6.2, 1.6, math.radians(220)
+    frames = []
+    for step in range(24):
+        a0 = math.radians(-step * 15)
+        caps = ((r_mid * math.cos(a0), -r_mid * math.sin(a0)), (r_mid * math.cos(a0 + sweep), -r_mid * math.sin(a0 + sweep)))
+        rows = []
+        for y in range(size):
+            dy = y - cy
+            row = []
+            for x in range(size):
+                dx = x - cx
+                d_ring = abs(math.hypot(dx, dy) - r_mid) - half_w
+                ang = (-math.atan2(dy, dx) - a0) % (2.0 * math.pi)
+                d_arc = d_ring if ang <= sweep else min(math.hypot(dx - ex, dy - ey) for ex, ey in caps) - half_w
+                a_t = min(1.0, max(0.0, 0.5 - d_ring))
+                a_a = min(1.0, max(0.0, 0.5 - d_arc))
+                cr = bg_rgb[0] + (track[0] - bg_rgb[0]) * a_t
+                cg = bg_rgb[1] + (track[1] - bg_rgb[1]) * a_t
+                cb = bg_rgb[2] + (track[2] - bg_rgb[2]) * a_t
+                row.append(f"#{int(cr + (arc[0] - cr) * a_a):02x}{int(cg + (arc[1] - cg) * a_a):02x}{int(cb + (arc[2] - cb) * a_a):02x}")
+            rows.append("{" + " ".join(row) + "}")
+        img = tk.PhotoImage(width=size, height=size)
+        img.put(" ".join(rows))
+        frames.append(img)
+    root._loading_frames = frames
+    return frames
+
+
+def run_with_loading_circle(ui, circle_attr, work_fn, done_fn):
+    circle = getattr(ui, circle_attr, None)
+    if circle is None or not hasattr(ui, "root"):
+        done_fn(work_fn())
+        return
+    if getattr(ui, "_loading_busy", False):
+        return
+
+    buttons = [
+        btn for name in (
+            "run_button",
+            "table_analysis_button",
+            "graph_analysis_button",
+            "table_comparison_button",
+            "graph_comparison_button",
+            "mesh_button",
+            "geo_button",
+            "cfd_case_definition_button",
+            "mesh_quality_button",
+        )
+        if (btn := getattr(ui, name, None)) is not None and str(btn.cget("state")) != "disabled"
+    ]
+    ui._loading_busy = True
+    for btn in buttons:
+        btn.configure(state="disabled")
+
+    frames = _loading_circle_frames(circle, circle._bg_name)
+    result, error = [], []
+
+    def worker():
+        try:
+            result.append(work_fn())
+        except Exception as exc:
+            error.append(exc)
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+
+    def tick(frame=0):
+        if not ui.root.winfo_exists() or not circle.winfo_exists():
+            ui._loading_busy = False
+            return
+        if thread.is_alive():
+            circle.configure(image=frames[frame])
+            ui.root.after(50, tick, (frame + 1) % len(frames))
+            return
+        circle.configure(image=circle._blank_image)
+        ui._loading_busy = False
+        for btn in buttons:
+            btn.configure(state="normal")
+        if error:
+            messagebox.showerror("Error", str(error[0]))
+            return
+        done_fn(result[0])
+
+    tick()
+
+
 def build_interface(ui):
     section_font = font.Font(family="Arial", size=10, weight="bold")
+    bg_parent = ttk.Style().lookup("TFrame", "background") or "SystemButtonFace"
     ui.notebook = ttk.Notebook(ui.root)
     ui.notebook.grid(column=0, row=0, sticky='NSEW')
     ui.root.columnconfigure(0, weight=1)
@@ -168,21 +272,12 @@ def build_interface(ui):
 
     # Run action
     run_area = ttk.Frame(ui.sizing_area)
-    run_area.grid(column=0, row=2, pady=(0, 10), sticky='EW')
-    for column, weight in enumerate((1, 8, 1)):
-        run_area.columnconfigure(column, weight=weight, uniform='run')
-    ttk.Button(run_area, text='Run', command=ui.on_run).grid(column=1, row=0, sticky='EW')
-    ui.progress_box = ttk.Frame(run_area, height=22)
-    ui.progress_box.grid(column=1, row=1, columnspan=2, sticky='EW', pady=(4, 0))
-    ui.progress_box.grid_propagate(False)
-    ui.progress_box.columnconfigure(0, weight=1)
-
-    ui.progress = ttk.Progressbar(ui.progress_box, maximum=100)
-    ui.progress_label = ttk.Label(ui.progress_box, text='0%', width=4)
-    ui.progress.grid(column=0, row=0, sticky='EW')
-    ui.progress_label.grid(column=1, row=0, padx=(4, 0))
-    ui.progress.grid_remove()
-    ui.progress_label.grid_remove()
+    run_area.grid(column=0, row=2, pady=(2, 10), sticky='EW')
+    run_area.columnconfigure(0, weight=1)
+    ui.run_button = ttk.Button(run_area, text='Run', command=ui.on_run)
+    ui.run_button.grid(column=0, row=0, padx=(0, 6), sticky='EW')
+    ui.run_loading_circle = _create_loading_circle(run_area, bg_parent)
+    ui.run_loading_circle.grid(column=1, row=0)
 
     # Results tab
     ui.results_frame = ttk.LabelFrame(ui.results_tab, padding=14)
@@ -273,6 +368,9 @@ def build_interface(ui):
     )
     ui.graph_analysis_button.grid(column=1, row=0, sticky="EW", padx=(2, 0))
 
+    ui.altitude_loading_circle = _create_loading_circle(action_row, bg_parent)
+    ui.altitude_loading_circle.grid(column=2, row=0, padx=(6, 0))
+
     ui.generate_analysis_button = ui.table_analysis_button
     ui.input_analysis.bind("<Return>", lambda e: index.generate_altitude_performance_table(ui))
 
@@ -335,6 +433,9 @@ def build_interface(ui):
     )
     ui.graph_comparison_button.grid(column=1, row=0, sticky="EW", padx=(2, 0))
 
+    ui.comparison_loading_circle = _create_loading_circle(comp_action_row, bg_parent)
+    ui.comparison_loading_circle.grid(column=2, row=0, padx=(6, 0))
+
     ui.performance_comparison_frame.grid_remove()
 
     ui.contour_button = ttk.Button(
@@ -395,6 +496,8 @@ def build_interface(ui):
         cfd_actions_frame, text='Save CFD Case Definition', command=lambda: index.save_cfd_case_definition(ui), state='disabled'
     )
     ui.cfd_case_definition_button.grid(column=2, row=0, padx=(4, 0), sticky='EW')
+    ui.mesh_loading_circle = _create_loading_circle(cfd_actions_frame, bg_parent)
+    ui.mesh_loading_circle.grid(column=3, row=0, padx=(6, 0))
 
     # CFD mesh quality panel
     ui.mesh_quality_frame = ttk.LabelFrame(ui.cfd_tab, padding=(8, 4))
@@ -404,7 +507,6 @@ def build_interface(ui):
     ui.mesh_quality_frame.columnconfigure(0, weight=1)
     ui.mesh_quality_frame.rowconfigure(0, weight=1)
 
-    bg_parent = ttk.Style().lookup("TFrame", "background") or "SystemButtonFace"
     quality_viewport = ttk.Frame(ui.mesh_quality_frame)
     quality_viewport.grid(column=0, row=0, sticky='NSEW')
     quality_viewport.columnconfigure(0, weight=1)
