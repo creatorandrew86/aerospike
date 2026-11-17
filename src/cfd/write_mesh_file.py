@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from cfd.geometry.write_gmsh_geometry_file import generate_geometry_file
+from cfd.mesh_quality import compute_gmsh_mesh_quality
 
 
 SUPPORTED_FORMATS = {".msh", ".su2", ".cgns", ".vtk"}
@@ -27,12 +28,15 @@ def write_mesh(case, path, mesh_format):
         geo_path = Path(directory) / "geometry.geo"
         geo_path.write_text(generate_geometry_file(case), encoding="utf-8")
 
+        quality = None
         gmsh.initialize()
         try:
             gmsh.open(str(geo_path))
             gmsh.model.mesh.generate(2)
             gmsh.write(str(path))
+            quality = compute_gmsh_mesh_quality()
         finally:
             gmsh.finalize()
 
+    case.setdefault("cfd", {})["mesh_quality"] = quality
     return path

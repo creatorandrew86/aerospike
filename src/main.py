@@ -17,12 +17,15 @@ def on_solve():
     inputs = ui.get_inputs_on_solve()
     definition = inputs.copy()
     ui.case["errors"] = []
+    ui.case["cfd"]["mesh_quality"] = None
+    layout.reset_mesh_quality_frame(ui)
 
     input_errors = input.process_inputs_on_solve(inputs)
     if input_errors:
         ui.case["definition"] = {}
         ui.case["results"] = {}
         ui.case["cfd"]["setup"] = {}
+        ui.case["cfd"]["mesh_quality"] = None
         ui.case["errors"] = input_errors
         index.show_errors(ui)
         return

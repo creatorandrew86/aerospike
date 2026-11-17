@@ -10,7 +10,7 @@ class Interface:
         self.case = case if case is not None else {
             "definition": {},
             "results": {},
-            "cfd": {"inputs": {}, "setup": {}},
+            "cfd": {"inputs": {}, "setup": {}, "mesh_quality": None},
             "errors": [],
         }
         self.build_interface()
@@ -89,6 +89,8 @@ class Interface:
             "contraction_ratio": self._parse_float(self.input_contraction_ratio.get()),
             "convergent_nozzle_angle": self._parse_float(self.input_convergent_nozzle_angle.get()),
             "thruster_nozzle": self.thruster_nozzle_var.get(),
+            "grid_density": self._parse_float(self.input_grid_density.get()),
+            "bl_mesh_density": self._parse_float(self.input_bl_mesh_density.get()),
         }
         self.case["cfd"]["inputs"] = inputs
         return inputs
@@ -98,13 +100,15 @@ class Interface:
         state = 'normal' if self.sizing_var.get() else 'disabled'
         self.linear_check.configure(state=state)
         self.toroidal_check.configure(state=state)
-        for button in getattr(self, "cfd_buttons", ()):
-            button.configure(state=state)
+        for widget in (*getattr(self, "cfd_buttons", ()), getattr(self, "input_grid_density", None), getattr(self, "input_bl_mesh_density", None)):
+            if widget is not None:
+                widget.configure(state=state)
         if not self.sizing_var.get():
             self.linear_var.set(False)
             self.toroidal_var.set(False)
         self.on_linear_toggle()
         self.on_toroidal_toggle()
+        self.on_thruster_toggle()
 
 
     def on_run(self):
@@ -112,10 +116,15 @@ class Interface:
         state = 'normal' if self.case["results"].get("x") else 'disabled'
         self.contour_button.configure(state=state)
         self.graph_button.configure(state=state)
+        self.on_thruster_toggle()
 
 
     def on_thruster_toggle(self):
-        state = 'normal' if self.thruster_nozzle_var.get() else 'disabled'
+        case_ready = bool(self.case["results"].get("aerospike_type")) and self.sizing_var.get()
+        self.thruster_nozzle_check.configure(state='normal' if case_ready else 'disabled')
+        if not case_ready:
+            self.thruster_nozzle_var.set(False)
+        state = 'normal' if case_ready and self.thruster_nozzle_var.get() else 'disabled'
         self.input_contraction_ratio.configure(state=state)
         self.input_convergent_nozzle_angle.configure(state=state)
 

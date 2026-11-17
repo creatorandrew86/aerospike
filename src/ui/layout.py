@@ -350,32 +350,110 @@ def build_interface(ui):
     # CFD tab: thruster inputs
     ui.thruster_nozzle_var = tk.BooleanVar(value=False)
     ui.thruster_frame = ttk.LabelFrame(ui.cfd_tab)
-    ui.thruster_frame.grid(column=0, row=0, columnspan=2, padx=10, pady=10, sticky='EW')
+    ui.thruster_frame.grid(column=0, row=0, padx=10, pady=(6, 4), sticky='EW')
     ui.thruster_nozzle_check = ttk.Checkbutton(
-        ui.thruster_frame, text="Model Thruster", variable=ui.thruster_nozzle_var, command=ui.on_thruster_toggle
+        ui.thruster_frame, text="Model Thruster", variable=ui.thruster_nozzle_var, command=ui.on_thruster_toggle, state='disabled'
     )
     ui.thruster_frame.configure(labelwidget=ui.thruster_nozzle_check)
-    for column in range(2):
+    for column in (1, 3):
         ui.thruster_frame.columnconfigure(column, weight=1, uniform='thruster')
-    ttk.Label(ui.thruster_frame, text='Contraction Ratio:').grid(column=0, row=0, padx=10, pady=(8, 2), sticky='W')
-    ui.input_contraction_ratio = ttk.Entry(ui.thruster_frame, state='disabled')
-    ui.input_contraction_ratio.grid(column=0, row=1, padx=(10, 5), pady=(0, 10), sticky='EW')
-    ttk.Label(ui.thruster_frame, text='Convergent Nozzle Angle (deg):').grid(column=1, row=0, padx=10, pady=(8, 2), sticky='W')
-    ui.input_convergent_nozzle_angle = ttk.Entry(ui.thruster_frame, state='disabled')
-    ui.input_convergent_nozzle_angle.grid(column=1, row=1, padx=(5, 10), pady=(0, 10), sticky='EW')
+    ttk.Label(ui.thruster_frame, text='Contraction Ratio:').grid(column=0, row=0, padx=(10, 4), pady=(6, 8), sticky='W')
+    ui.input_contraction_ratio = ttk.Entry(ui.thruster_frame, width=10, state='disabled')
+    ui.input_contraction_ratio.grid(column=1, row=0, padx=(0, 10), pady=(6, 8), sticky='EW')
+    ttk.Label(ui.thruster_frame, text='Convergent Nozzle Angle (deg):').grid(column=2, row=0, padx=(4, 4), pady=(6, 8), sticky='W')
+    ui.input_convergent_nozzle_angle = ttk.Entry(ui.thruster_frame, width=10, state='disabled')
+    ui.input_convergent_nozzle_angle.grid(column=3, row=0, padx=(0, 10), pady=(6, 8), sticky='EW')
+
+    # CFD tab: mesh density inputs
+    cfd_density_row = ttk.Frame(ui.cfd_tab)
+    cfd_density_row.grid(column=0, row=1, padx=10, pady=(4, 6), sticky='EW')
+    for column in (1, 3):
+        cfd_density_row.columnconfigure(column, weight=1, uniform='density')
+    ttk.Label(cfd_density_row, text='Grid Density Factor:').grid(column=0, row=0, padx=(0, 4), sticky='W')
+    ui.input_grid_density = ttk.Entry(cfd_density_row, width=10)
+    ui.input_grid_density.insert(0, "1")
+    ui.input_grid_density.grid(column=1, row=0, sticky='EW')
+    ttk.Label(cfd_density_row, text='Boundary Layer Density Factor:').grid(column=2, row=0, padx=(12, 4), sticky='W')
+    ui.input_bl_mesh_density = ttk.Entry(cfd_density_row, width=10)
+    ui.input_bl_mesh_density.insert(0, "1")
+    ui.input_bl_mesh_density.grid(column=3, row=0, sticky='EW')
 
     # CFD export actions
-    ui.mesh_button = ttk.Button(ui.cfd_tab, text='Export Mesh', command=lambda: index.save_mesh_file(ui), state='disabled')
-    ui.mesh_button.grid(column=0, row=1, padx=(10, 4), pady=3, sticky='EW')
-    ui.cfd_case_definition_button = ttk.Button(
-        ui.cfd_tab, text='Save CFD Case Definition', command=lambda: index.save_cfd_case_definition(ui), state='disabled'
+    cfd_actions_frame = ttk.Frame(ui.cfd_tab)
+    cfd_actions_frame.grid(column=0, row=2, padx=10, pady=(2, 8), sticky='EW')
+    for column in range(3):
+        cfd_actions_frame.columnconfigure(column, weight=1, uniform='cfd_btn')
+    ui.mesh_button = ttk.Button(
+        cfd_actions_frame, text='Export Mesh', command=lambda: index.save_mesh_file(ui), state='disabled'
     )
-    ui.cfd_case_definition_button.grid(column=0, row=2, padx=(10, 4), pady=3, sticky='EW')
-    ui.geo_button = ttk.Button(ui.cfd_tab, text='Export CFD Geometry', command=lambda: index.save_gmsh_geometry_file(ui), state='disabled')
-    ui.geo_button.grid(column=1, row=1, padx=4, pady=3, sticky='EW')
-    ui.cfd_buttons = (ui.mesh_button, ui.cfd_case_definition_button, ui.geo_button)
-    for column in range(2):
-        ui.cfd_tab.columnconfigure(column, weight=1)
+    ui.mesh_button.grid(column=0, row=0, padx=(0, 4), sticky='EW')
+    ui.geo_button = ttk.Button(
+        cfd_actions_frame, text='Export CFD Geometry', command=lambda: index.save_gmsh_geometry_file(ui), state='disabled'
+    )
+    ui.geo_button.grid(column=1, row=0, padx=2, sticky='EW')
+    ui.cfd_case_definition_button = ttk.Button(
+        cfd_actions_frame, text='Save CFD Case Definition', command=lambda: index.save_cfd_case_definition(ui), state='disabled'
+    )
+    ui.cfd_case_definition_button.grid(column=2, row=0, padx=(4, 0), sticky='EW')
+
+    # CFD mesh quality panel
+    ui.mesh_quality_frame = ttk.LabelFrame(ui.cfd_tab, padding=(8, 4))
+    ui.mesh_quality_frame.grid(column=0, row=3, padx=10, pady=(6, 8), sticky='NSEW')
+    ui.mesh_quality_title = ttk.Label(ui.mesh_quality_frame, text="Mesh Quality", font=section_font)
+    ui.mesh_quality_frame.configure(labelwidget=ui.mesh_quality_title)
+    ui.mesh_quality_frame.columnconfigure(0, weight=1)
+    ui.mesh_quality_frame.rowconfigure(0, weight=1)
+
+    bg_parent = ttk.Style().lookup("TFrame", "background") or "SystemButtonFace"
+    quality_viewport = ttk.Frame(ui.mesh_quality_frame)
+    quality_viewport.grid(column=0, row=0, sticky='NSEW')
+    quality_viewport.columnconfigure(0, weight=1)
+    quality_viewport.rowconfigure(0, weight=1)
+
+    ui.mesh_quality_canvas = tk.Canvas(quality_viewport, bg=bg_parent, bd=0, highlightthickness=0, width=1, height=1)
+    ui.mesh_quality_canvas.grid(column=0, row=0, sticky='NSEW')
+    ui.mesh_quality_scrollbar = ttk.Scrollbar(
+        quality_viewport, orient='vertical', command=ui.mesh_quality_canvas.yview
+    )
+    ui.mesh_quality_scrollbar.grid(column=1, row=0, sticky='NS')
+    ui.mesh_quality_canvas.configure(yscrollcommand=ui.mesh_quality_scrollbar.set)
+
+    ui.mesh_quality_output = ttk.Frame(ui.mesh_quality_canvas)
+    ui.mesh_quality_window = ui.mesh_quality_canvas.create_window((0, 0), window=ui.mesh_quality_output, anchor='nw')
+
+    def _sync_mesh_quality_scroll(_event=None):
+        content_h = ui.mesh_quality_output.winfo_reqheight()
+        view_h = ui.mesh_quality_canvas.winfo_height()
+        ui.mesh_quality_canvas.configure(scrollregion=(0, 0, ui.mesh_quality_canvas.winfo_width(), content_h))
+        if view_h > 1 and content_h > view_h:
+            ui.mesh_quality_scrollbar.grid()
+        else:
+            ui.mesh_quality_scrollbar.grid_remove()
+            ui.mesh_quality_canvas.yview_moveto(0)
+
+    def _on_quality_canvas_configure(event):
+        ui.mesh_quality_canvas.itemconfigure(ui.mesh_quality_window, width=event.width)
+        _sync_mesh_quality_scroll()
+
+    def _on_quality_mousewheel(event):
+        if ui.mesh_quality_output.winfo_reqheight() > ui.mesh_quality_canvas.winfo_height():
+            ui.mesh_quality_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    ui.mesh_quality_canvas.bind("<Configure>", _on_quality_canvas_configure)
+    ui.mesh_quality_output.bind("<Configure>", _sync_mesh_quality_scroll)
+    quality_viewport.bind("<Enter>", lambda _e: ui.mesh_quality_canvas.bind_all("<MouseWheel>", _on_quality_mousewheel))
+    quality_viewport.bind("<Leave>", lambda _e: ui.mesh_quality_canvas.unbind_all("<MouseWheel>"))
+    quality_viewport.bind("<Destroy>", lambda _e: ui.mesh_quality_canvas.unbind_all("<MouseWheel>"))
+
+    ui.mesh_quality_button = ttk.Button(
+        ui.mesh_quality_frame, text='Check Mesh Quality', command=lambda: index.show_mesh_quality(ui), state='disabled'
+    )
+    ui.mesh_quality_button.grid(column=0, row=1, pady=(6, 0), sticky='EW')
+    reset_mesh_quality_frame(ui)
+
+    ui.cfd_buttons = (ui.mesh_button, ui.cfd_case_definition_button, ui.geo_button, ui.mesh_quality_button)
+    ui.cfd_tab.columnconfigure(0, weight=1)
+    ui.cfd_tab.rowconfigure(3, weight=1)
 
     ui.on_thruster_toggle()
     ui.on_sizing_toggle()
@@ -497,3 +575,58 @@ def _build_sizing_row(ui, parent, row_idx, label_text, key, units):
     setattr(ui, f"{key}_chk", chk)
     setattr(ui, f"{key}_entry", entry)
     setattr(ui, f"{key}_unit", unit_box)
+
+
+def reset_mesh_quality_frame(ui, message="No mesh generated yet."):
+    for widget in ui.mesh_quality_output.winfo_children():
+        widget.destroy()
+    ui.mesh_quality_output.columnconfigure(0, weight=1)
+    for col in range(1, 4):
+        ui.mesh_quality_output.columnconfigure(col, weight=0)
+    ttk.Label(ui.mesh_quality_output, text=message, foreground="gray40", font=("Arial", 10)).grid(
+        column=0, row=0, sticky="W", pady=4
+    )
+    ui.mesh_quality_canvas.yview_moveto(0)
+
+
+def build_mesh_quality_frame(ui):
+    for widget in ui.mesh_quality_output.winfo_children():
+        widget.destroy()
+
+    quality = (ui.case.get("cfd") or {}).get("mesh_quality") or {}
+    metrics = quality.get("metrics") or []
+    if not metrics:
+        reset_mesh_quality_frame(ui)
+        return
+
+    hdr_font = font.Font(family="Arial", size=10, weight="bold")
+    row_font = font.Font(family="Arial", size=10)
+    for col, weight in enumerate((4, 2, 3, 1)):
+        ui.mesh_quality_output.columnconfigure(col, weight=weight)
+
+    summary = f"Nodes: {quality.get('nodes', 0):,}    Elements: {quality.get('elements', 0):,}"
+    ttk.Label(ui.mesh_quality_output, text=summary, font=row_font).grid(
+        column=0, row=0, columnspan=4, sticky="W", padx=2, pady=(0, 4)
+    )
+    for col, text in enumerate(("Metric", "Type", "Worst / Mean", "Unit")):
+        ttk.Label(ui.mesh_quality_output, text=text, font=hdr_font).grid(
+            column=col, row=1, sticky="W" if col < 2 else "E", padx=2, pady=(0, 2)
+        )
+    ttk.Separator(ui.mesh_quality_output, orient="horizontal").grid(
+        column=0, row=2, columnspan=4, sticky="EW", pady=2
+    )
+
+    for row_idx, item in enumerate(metrics, start=3):
+        ttk.Label(ui.mesh_quality_output, text=item["name"], font=row_font).grid(
+            column=0, row=row_idx, sticky="W", padx=2, pady=2
+        )
+        ttk.Label(ui.mesh_quality_output, text=item["element_type"], font=row_font).grid(
+            column=1, row=row_idx, sticky="W", padx=2, pady=2
+        )
+        ttk.Label(ui.mesh_quality_output, text=item["value_str"], font=row_font).grid(
+            column=2, row=row_idx, sticky="E", padx=2, pady=2
+        )
+        ttk.Label(ui.mesh_quality_output, text=item["unit"], font=row_font).grid(
+            column=3, row=row_idx, sticky="E", padx=2, pady=2
+        )
+    ui.mesh_quality_canvas.yview_moveto(0)

@@ -81,11 +81,25 @@ def save_mesh_file(ui):
         mesh_path += mesh_format
     try:
         from cfd.write_mesh_file import write_mesh
+        from ui import layout
 
         write_mesh(ui.case, mesh_path, mesh_format)
+        layout.reset_mesh_quality_frame(ui, "Mesh ready.")
         messagebox.showinfo("Mesh Saved", "Mesh successfully saved.")
     except Exception as error:
         messagebox.showerror("Error", f"An error occurred while saving the mesh: {error}")
+
+
+def show_mesh_quality(ui):
+    if not ui.case["results"].get("aerospike_type"):
+        messagebox.showerror("Error", "Run a sized aerospike case before checking mesh quality.")
+        return
+    from ui import layout
+
+    if not (ui.case.get("cfd") or {}).get("mesh_quality"):
+        messagebox.showinfo("Mesh Quality", "No mesh has been generated for the current case yet. Export a mesh first.")
+        return
+    layout.build_mesh_quality_frame(ui)
 
 
 def save_gmsh_geometry_file(ui):

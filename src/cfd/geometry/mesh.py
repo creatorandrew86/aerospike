@@ -10,6 +10,19 @@ DEFAULT_THRUSTER_BL_CELL_NUMBER = 250
 DEFAULT_SPIKE_BL_CELL_NUMBER = 1250
 
 
+def density_factors(grid_density=1.0, bl_mesh_density=1.0):
+    """Return per-region mesh sizing factors from Grid Density and BL Mesh Density."""
+    s = float(grid_density) ** (2.0 / 3.0)
+    bl = s * float(bl_mesh_density)
+    return {
+        "farfield": s,
+        "cowl": s,
+        "inlet": s,
+        "thruster": bl,
+        "spike": bl,
+    }
+
+
 def _solve_u_over_sinh_u(target_ratio):
     lo, hi = 0.0, 1.0
     while hi < 700.0 and hi / sinh(hi) > target_ratio:

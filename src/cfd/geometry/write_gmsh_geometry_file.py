@@ -97,21 +97,28 @@ def generate_geometry_file(case):
     thruster_loop_curve = "-111, " if throat_index > 0 else ""
     symmetry_curves = "304, 308" if not truncated else "103, 304, 308"
 
-    farfield_cell_size = mesh.DEFAULT_FARFIELD_CELL_SIZE * scale
-    cowl_cell_size = mesh.DEFAULT_COWL_CELL_SIZE * scale
-    inlet_cell_number = mesh.DEFAULT_INLET_CELL_NUMBER
+    cfd_inputs = (case.get("cfd") or {}).get("inputs") or {}
+    grid_density = cfd_inputs.get("grid_density", 1.0)
+    bl_mesh_density = cfd_inputs.get("bl_mesh_density", 1.0)
+    factors = mesh.density_factors(
+        1.0 if grid_density is None else grid_density,
+        1.0 if bl_mesh_density is None else bl_mesh_density,
+    )
+    farfield_cell_size = mesh.DEFAULT_FARFIELD_CELL_SIZE * scale / factors["farfield"]
+    cowl_cell_size = mesh.DEFAULT_COWL_CELL_SIZE * scale / factors["cowl"]
+    inlet_cell_number = max(3, round(mesh.DEFAULT_INLET_CELL_NUMBER * factors["inlet"]))
     inlet_cell_size = geometry.lengths["inlet"] / inlet_cell_number
     inlet_bl_cell_size = 0.9 * inlet_cell_size
 
     if throat_index > 0:
-        thruster_bl_cell_number = mesh.DEFAULT_THRUSTER_BL_CELL_NUMBER
+        thruster_bl_cell_number = max(3, round(mesh.DEFAULT_THRUSTER_BL_CELL_NUMBER * factors["thruster"]))
         thruster_bl_cell_size = geometry.lengths["thruster"] / thruster_bl_cell_number
         spike_bl_start_cell_size = thruster_bl_cell_size
     else:
         spike_bl_start_cell_size = inlet_bl_cell_size
 
     secondary_bl_cell_number = max(3, round(geometry.lengths["nozzle"] / spike_bl_start_cell_size))
-    spike_bl_cell_number = mesh.DEFAULT_SPIKE_BL_CELL_NUMBER
+    spike_bl_cell_number = max(3, round(mesh.DEFAULT_SPIKE_BL_CELL_NUMBER * factors["spike"]))
     if not truncated:
         spike_bl_curve = mesh.bump(
             "1, 101", geometry.lengths["spike"], spike_bl_start_cell_size, spike_bl_cell_number
