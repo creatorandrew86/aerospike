@@ -56,7 +56,7 @@ def on_solve():
 if __name__ == "__main__":
     root = tk.Tk()
     root.title('Aerospike')
-    root.geometry('570x350')
+    root.geometry('570x330')
     root.resizable(False, False)
 
     ICON = get_base_path() / "assets" / "icon.ico"

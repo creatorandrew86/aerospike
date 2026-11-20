@@ -113,5 +113,7 @@ def compute_gmsh_mesh_quality():
     return {
         "nodes": int(len(node_tags)),
         "elements": int(len(q_idx) + len(t_idx)),
+        "quads": int(len(q_idx)),
+        "tris": int(len(t_idx)),
         "metrics": metrics,
     }

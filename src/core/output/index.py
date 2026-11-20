@@ -83,7 +83,7 @@ def save_mesh_file(ui):
     from ui import layout
 
     def done(_):
-        layout.reset_mesh_quality_frame(ui, "Mesh ready.")
+        layout.build_mesh_quality_frame(ui)
         messagebox.showinfo("Mesh Saved", "Mesh successfully saved.")
 
     layout.run_with_loading_circle(
@@ -100,7 +100,7 @@ def show_mesh_quality(ui):
     if not (ui.case.get("cfd") or {}).get("mesh_quality"):
         messagebox.showinfo("Mesh Quality", "No mesh has been generated for the current case yet. Export a mesh first.")
         return
-    layout.build_mesh_quality_frame(ui)
+    layout.show_mesh_quality_table(ui)
 
 
 def save_gmsh_geometry_file(ui):

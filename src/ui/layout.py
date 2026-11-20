@@ -280,8 +280,8 @@ def build_interface(ui):
     ui.run_loading_circle.grid(column=1, row=0)
 
     # Results tab
-    ui.results_frame = ttk.LabelFrame(ui.results_tab, padding=14)
-    ui.results_frame.grid(column=0, row=0, padx=(10, 5), pady=(10, 4), sticky="NSEW")
+    ui.results_frame = ttk.LabelFrame(ui.results_tab, padding=10)
+    ui.results_frame.grid(column=0, row=0, padx=(10, 5), pady=(7, 7), sticky="NSEW")
     ui.results_title = ttk.Label(ui.results_frame, text="Geometry", font=section_font)
     ui.results_frame.configure(labelwidget=ui.results_title)
     ui.main_output = ttk.Frame(ui.results_frame)
@@ -291,10 +291,14 @@ def build_interface(ui):
     ui.results_frame.rowconfigure(0, weight=1)
     ttk.Label(ui.main_output, text="No results available.", foreground="gray40").grid(column=0, row=0, sticky="W")
     ui.graph_button = ttk.Button(ui.results_frame, text='Contour Graph', command=lambda: index.graph_output(ui), state='disabled')
-    ui.graph_button.grid(column=0, row=1, pady=(6, 0), sticky='EW')
+    ui.graph_button.grid(column=0, row=1, pady=(4, 0), sticky='EW')
+    ui.contour_button = ttk.Button(
+        ui.results_frame, text='Save As', command=lambda: index.save_results_file(ui), state='disabled'
+    )
+    ui.contour_button.grid(column=0, row=2, pady=(4, 0), sticky='EW')
 
     ui.performance_frame = ttk.LabelFrame(ui.results_tab, padding=10)
-    ui.performance_frame.grid(column=1, row=0, padx=(5, 10), pady=(10, 4), sticky="NSEW")
+    ui.performance_frame.grid(column=1, row=0, padx=(5, 10), pady=(7, 7), sticky="NSEW")
     ui.performance_title = ttk.Label(ui.performance_frame, text="Performance", font=section_font)
     ui.performance_frame.configure(labelwidget=ui.performance_title)
     ui.performance_output = ttk.Frame(ui.performance_frame)
@@ -438,15 +442,9 @@ def build_interface(ui):
 
     ui.performance_comparison_frame.grid_remove()
 
-    ui.contour_button = ttk.Button(
-        ui.results_tab, text='Save As', command=lambda: index.save_results_file(ui), state='disabled'
-    )
-    ui.contour_button.grid(row=1, column=1, sticky='SE', padx=(0, 10), pady=(0, 6))
-
     ui.results_tab.columnconfigure(0, weight=0, minsize=195)
     ui.results_tab.columnconfigure(1, weight=1)
-    ui.results_tab.rowconfigure(0, weight=0, minsize=294)
-    ui.results_tab.rowconfigure(1, weight=1)
+    ui.results_tab.rowconfigure(0, weight=1)
 
     # CFD tab: thruster inputs
     ui.thruster_nozzle_var = tk.BooleanVar(value=False)
@@ -499,58 +497,27 @@ def build_interface(ui):
     ui.mesh_loading_circle = _create_loading_circle(cfd_actions_frame, bg_parent)
     ui.mesh_loading_circle.grid(column=3, row=0, padx=(6, 0))
 
-    # CFD mesh quality panel
-    ui.mesh_quality_frame = ttk.LabelFrame(ui.cfd_tab, padding=(8, 4))
-    ui.mesh_quality_frame.grid(column=0, row=3, padx=10, pady=(6, 8), sticky='NSEW')
-    ui.mesh_quality_title = ttk.Label(ui.mesh_quality_frame, text="Mesh Quality", font=section_font)
+    # CFD results panel (left half)
+    cfd_bottom = ttk.Frame(ui.cfd_tab)
+    cfd_bottom.grid(column=0, row=3, sticky='NSEW')
+    cfd_bottom.columnconfigure(0, weight=1, uniform='cfd_half')
+    cfd_bottom.columnconfigure(1, weight=1, uniform='cfd_half')
+    cfd_bottom.rowconfigure(0, weight=1)
+
+    ui.mesh_quality_frame = ttk.LabelFrame(cfd_bottom, padding=(10, 4))
+    ui.mesh_quality_frame.grid(column=0, row=0, padx=(10, 5), pady=(6, 8), sticky='NSEW')
+    ui.mesh_quality_title = ttk.Label(ui.mesh_quality_frame, text="Results", font=section_font)
     ui.mesh_quality_frame.configure(labelwidget=ui.mesh_quality_title)
     ui.mesh_quality_frame.columnconfigure(0, weight=1)
     ui.mesh_quality_frame.rowconfigure(0, weight=1)
 
-    quality_viewport = ttk.Frame(ui.mesh_quality_frame)
-    quality_viewport.grid(column=0, row=0, sticky='NSEW')
-    quality_viewport.columnconfigure(0, weight=1)
-    quality_viewport.rowconfigure(0, weight=1)
-
-    ui.mesh_quality_canvas = tk.Canvas(quality_viewport, bg=bg_parent, bd=0, highlightthickness=0, width=1, height=1)
-    ui.mesh_quality_canvas.grid(column=0, row=0, sticky='NSEW')
-    ui.mesh_quality_scrollbar = ttk.Scrollbar(
-        quality_viewport, orient='vertical', command=ui.mesh_quality_canvas.yview
-    )
-    ui.mesh_quality_scrollbar.grid(column=1, row=0, sticky='NS')
-    ui.mesh_quality_canvas.configure(yscrollcommand=ui.mesh_quality_scrollbar.set)
-
-    ui.mesh_quality_output = ttk.Frame(ui.mesh_quality_canvas)
-    ui.mesh_quality_window = ui.mesh_quality_canvas.create_window((0, 0), window=ui.mesh_quality_output, anchor='nw')
-
-    def _sync_mesh_quality_scroll(_event=None):
-        content_h = ui.mesh_quality_output.winfo_reqheight()
-        view_h = ui.mesh_quality_canvas.winfo_height()
-        ui.mesh_quality_canvas.configure(scrollregion=(0, 0, ui.mesh_quality_canvas.winfo_width(), content_h))
-        if view_h > 1 and content_h > view_h:
-            ui.mesh_quality_scrollbar.grid()
-        else:
-            ui.mesh_quality_scrollbar.grid_remove()
-            ui.mesh_quality_canvas.yview_moveto(0)
-
-    def _on_quality_canvas_configure(event):
-        ui.mesh_quality_canvas.itemconfigure(ui.mesh_quality_window, width=event.width)
-        _sync_mesh_quality_scroll()
-
-    def _on_quality_mousewheel(event):
-        if ui.mesh_quality_output.winfo_reqheight() > ui.mesh_quality_canvas.winfo_height():
-            ui.mesh_quality_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-    ui.mesh_quality_canvas.bind("<Configure>", _on_quality_canvas_configure)
-    ui.mesh_quality_output.bind("<Configure>", _sync_mesh_quality_scroll)
-    quality_viewport.bind("<Enter>", lambda _e: ui.mesh_quality_canvas.bind_all("<MouseWheel>", _on_quality_mousewheel))
-    quality_viewport.bind("<Leave>", lambda _e: ui.mesh_quality_canvas.unbind_all("<MouseWheel>"))
-    quality_viewport.bind("<Destroy>", lambda _e: ui.mesh_quality_canvas.unbind_all("<MouseWheel>"))
+    ui.mesh_quality_output = ttk.Frame(ui.mesh_quality_frame)
+    ui.mesh_quality_output.grid(column=0, row=0, sticky='NSEW')
 
     ui.mesh_quality_button = ttk.Button(
         ui.mesh_quality_frame, text='Check Mesh Quality', command=lambda: index.show_mesh_quality(ui), state='disabled'
     )
-    ui.mesh_quality_button.grid(column=0, row=1, pady=(6, 0), sticky='EW')
+    ui.mesh_quality_button.grid(column=0, row=1, pady=(3, 0), sticky='EW')
     reset_mesh_quality_frame(ui)
 
     ui.cfd_buttons = (ui.mesh_button, ui.cfd_case_definition_button, ui.geo_button, ui.mesh_quality_button)
@@ -565,7 +532,7 @@ def build_interface(ui):
 def build_results_frame(ui):
     label_font = font.Font(family="Arial", size=9)
     value_font = font.Font(family="Arial", size=9, weight="bold")
-    header_font = font.Font(family="Arial", size=11, weight="bold")
+    header_font = font.Font(family="Arial", size=10, weight="bold")
 
     for widget in ui.main_output.winfo_children():
         widget.destroy()
@@ -574,7 +541,7 @@ def build_results_frame(ui):
     aerospike_type = results.get("aerospike_type")
     type_label = {"toroidal": "Toroidal Aerospike", "linear": "Linear Aerospike"}.get(aerospike_type, "Aerospike")
     ttk.Label(ui.main_output, text=type_label, font=header_font).grid(
-        column=0, row=0, columnspan=2, sticky='W', pady=(0, 10)
+        column=0, row=0, columnspan=2, sticky='W', pady=(0, 5)
     )
 
     if aerospike_type == "linear":
@@ -585,7 +552,7 @@ def build_results_frame(ui):
         fields = []
 
     row = 1
-    ttk.Separator(ui.main_output, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='EW', pady=(0, 8))
+    ttk.Separator(ui.main_output, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='EW', pady=(0, 5))
     row += 1
     if not fields:
         ttk.Label(ui.main_output, text="No sizing results available.", font=label_font, foreground="gray40").grid(
@@ -606,7 +573,7 @@ def build_results_frame(ui):
 
     x_values = [value for value in results.get("x", []) if value is not None]
     if x_values:
-        ttk.Separator(ui.main_output, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='EW', pady=(8, 8))
+        ttk.Separator(ui.main_output, orient='horizontal').grid(column=0, row=row, columnspan=2, sticky='EW', pady=(5, 5))
         row += 1
         throat_length = results.get("throat_length")
         throat_display = "—" if throat_length is None else f"{throat_length * 1e3:.2f} mm"
@@ -683,12 +650,10 @@ def reset_mesh_quality_frame(ui, message="No mesh generated yet."):
     for widget in ui.mesh_quality_output.winfo_children():
         widget.destroy()
     ui.mesh_quality_output.columnconfigure(0, weight=1)
-    for col in range(1, 4):
-        ui.mesh_quality_output.columnconfigure(col, weight=0)
-    ttk.Label(ui.mesh_quality_output, text=message, foreground="gray40", font=("Arial", 10)).grid(
+    ui.mesh_quality_output.columnconfigure(1, weight=0)
+    ttk.Label(ui.mesh_quality_output, text=message, foreground="gray40", font=("Arial", 9)).grid(
         column=0, row=0, sticky="W", pady=4
     )
-    ui.mesh_quality_canvas.yview_moveto(0)
 
 
 def build_mesh_quality_frame(ui):
@@ -696,39 +661,66 @@ def build_mesh_quality_frame(ui):
         widget.destroy()
 
     quality = (ui.case.get("cfd") or {}).get("mesh_quality") or {}
-    metrics = quality.get("metrics") or []
-    if not metrics:
+    if not quality:
         reset_mesh_quality_frame(ui)
         return
 
-    hdr_font = font.Font(family="Arial", size=10, weight="bold")
-    row_font = font.Font(family="Arial", size=10)
-    for col, weight in enumerate((4, 2, 3, 1)):
-        ui.mesh_quality_output.columnconfigure(col, weight=weight)
+    lbl_font = font.Font(family="Arial", size=9)
+    val_font = font.Font(family="Arial", size=9, weight="bold")
+    ui.mesh_quality_output.columnconfigure(0, weight=1)
+    ui.mesh_quality_output.columnconfigure(1, weight=0)
 
-    summary = f"Nodes: {quality.get('nodes', 0):,}    Elements: {quality.get('elements', 0):,}"
-    ttk.Label(ui.mesh_quality_output, text=summary, font=row_font).grid(
-        column=0, row=0, columnspan=4, sticky="W", padx=2, pady=(0, 4)
+    quads = quality.get("quads", 0)
+    tris = quality.get("tris", 0)
+    total = quality.get("elements", quads + tris)
+    q_pct = (100.0 * quads / total) if total else 0.0
+    t_pct = (100.0 * tris / total) if total else 0.0
+    rows = (
+        ("Nodes:", f"{quality.get('nodes', 0):,}"),
+        ("Elements:", f"{total:,}"),
+        ("Quads:", f"{quads:,} ({q_pct:.1f}%)"),
+        ("Tris:", f"{tris:,} ({t_pct:.1f}%)"),
     )
-    for col, text in enumerate(("Metric", "Type", "Worst / Mean", "Unit")):
-        ttk.Label(ui.mesh_quality_output, text=text, font=hdr_font).grid(
-            column=col, row=1, sticky="W" if col < 2 else "E", padx=2, pady=(0, 2)
-        )
-    ttk.Separator(ui.mesh_quality_output, orient="horizontal").grid(
-        column=0, row=2, columnspan=4, sticky="EW", pady=2
-    )
+    for row_idx, (label, value) in enumerate(rows):
+        ttk.Label(ui.mesh_quality_output, text=label, font=lbl_font).grid(column=0, row=row_idx, sticky="W")
+        ttk.Label(ui.mesh_quality_output, text=value, font=val_font).grid(column=1, row=row_idx, sticky="E")
 
-    for row_idx, item in enumerate(metrics, start=3):
-        ttk.Label(ui.mesh_quality_output, text=item["name"], font=row_font).grid(
-            column=0, row=row_idx, sticky="W", padx=2, pady=2
-        )
-        ttk.Label(ui.mesh_quality_output, text=item["element_type"], font=row_font).grid(
-            column=1, row=row_idx, sticky="W", padx=2, pady=2
-        )
-        ttk.Label(ui.mesh_quality_output, text=item["value_str"], font=row_font).grid(
-            column=2, row=row_idx, sticky="E", padx=2, pady=2
-        )
-        ttk.Label(ui.mesh_quality_output, text=item["unit"], font=row_font).grid(
-            column=3, row=row_idx, sticky="E", padx=2, pady=2
-        )
-    ui.mesh_quality_canvas.yview_moveto(0)
+
+def show_mesh_quality_table(ui):
+    quality = (ui.case.get("cfd") or {}).get("mesh_quality") or {}
+    metrics = quality.get("metrics") or []
+    if not metrics:
+        return
+
+    prev = getattr(ui, "_mesh_quality_window", None)
+    if prev is not None and prev.winfo_exists():
+        prev.destroy()
+
+    lbl_font = font.Font(family="Arial", size=9)
+    val_font = font.Font(family="Arial", size=9, weight="bold")
+    bg_parent = ttk.Style().lookup("TFrame", "background") or "SystemButtonFace"
+    window = tk.Toplevel(ui.root)
+    window.title("Mesh Quality")
+    window.resizable(False, False)
+    ui._mesh_quality_window = window
+
+    table = tk.Frame(window, bg="#c5c8cc", bd=0)
+    table.pack(fill="both", expand=True, padx=10, pady=10)
+    for col, weight in enumerate((4, 2, 3)):
+        table.columnconfigure(col, weight=weight)
+
+    for col, text in enumerate(("Metric", "Type", "Worst / Mean")):
+        cell = tk.Frame(table, bg=bg_parent, padx=8, pady=5)
+        cell.grid(column=col, row=0, sticky="NSEW", padx=(0 if col == 0 else 1, 0), pady=(0, 1))
+        tk.Label(cell, text=text, font=val_font, bg=bg_parent, fg="#111827").pack(anchor="w" if col < 2 else "e")
+
+    for row_idx, item in enumerate(metrics, start=1):
+        unit = item.get("unit")
+        name = f"{item['name']} ({unit})" if unit and unit != "—" else item["name"]
+        for col, val in enumerate((name, item["element_type"], item["value_str"])):
+            cell = tk.Frame(table, bg=bg_parent, padx=8, pady=4)
+            cell.grid(
+                column=col, row=row_idx, sticky="NSEW",
+                padx=(0 if col == 0 else 1, 0), pady=(0, 0 if row_idx == len(metrics) else 1),
+            )
+            tk.Label(cell, text=val, font=lbl_font, bg=bg_parent, fg="#111827").pack(anchor="w" if col < 2 else "e")
