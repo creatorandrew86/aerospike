@@ -17,7 +17,7 @@ Functions:
 
 import math
 from core import cea
-from core.geometry import _mach_angle, _prandtl_meyer_angle
+from core.geometry import _mach_angle
 
 G0 = 9.80665
 
@@ -30,10 +30,10 @@ def throat_area(inputs: dict, results: dict) -> float:
 def throat_pressure_component(inputs: dict, results: dict, ambient_pressure: float) -> float:
     p_t = cea.pressure_from_eps(inputs, inputs["effective_throat_eps"])
     a_t = throat_area(inputs, results)
-    gamma_fn = cea.gamma_from_mach(inputs)
+    pm_fn = cea.prandtl_meyer_from_mach(inputs)
     m_entry = cea.entry_conditions(inputs)
     m_exit = cea.exit_mach(inputs)
-    theta_t = _prandtl_meyer_angle(m_exit, gamma_fn) - _prandtl_meyer_angle(m_entry, gamma_fn)
+    theta_t = pm_fn(m_exit) - pm_fn(m_entry)
     mu_t = _mach_angle(m_entry)
     a_t_proj = a_t * math.sin(mu_t + theta_t) / math.sin(mu_t)
     return (p_t - ambient_pressure) * a_t_proj
