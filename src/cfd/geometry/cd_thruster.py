@@ -6,43 +6,69 @@ from cfd.geometry.conv_thruster import corner_fillet
 
 
 CONVERGENT_NOZZLE_ANGLE = 45
-CONICAL_NOZZLE_ANGLE = 20
-RAO_THROAT_ANGLE = 40
-BELL_LENGTH_PERCENT = 0.8
 CONVERGENT_RADIUS_RATIO = 1.5
 DIVERGENT_RADIUS_RATIO = 0.4
 NOZZLE_POINT_COUNT = 22
 FILLET_RADIUS_RATIO = 0.04
-def fillet(
-    contour,
+
+
+def _build_profile(
     throat_length,
+    contraction_ratio,
+    expansion_ratio,
+    bell_angle,
     convergent_radius_ratio=CONVERGENT_RADIUS_RATIO,
     divergent_radius_ratio=DIVERGENT_RADIUS_RATIO,
     boundary_layer_thickness=0.0,
     convergent_nozzle_angle=CONVERGENT_NOZZLE_ANGLE,
+    throat_y_slope=0.0,
 ):
-    """Replace a three-point construction with a 22-point rounded Rao profile."""
-    if len(contour) != 3:
-        raise ValueError("A CD nozzle construction must contain exactly three points.")
-    ratios = convergent_radius_ratio, divergent_radius_ratio
-    if not all(isfinite(value) for value in ratios) or min(ratios) <= 0:
+    """Build the 22-point symmetric CD nozzle half-profile ending at the exit lip."""
+    values = (
+        throat_length, contraction_ratio, expansion_ratio, bell_angle,
+        convergent_radius_ratio, divergent_radius_ratio,
+        boundary_layer_thickness, convergent_nozzle_angle, throat_y_slope,
+    )
+    if not all(isfinite(value) for value in values):
+        raise ValueError("CD nozzle parameters must be finite.")
+    if throat_length <= 0 or contraction_ratio <= 1 or expansion_ratio <= 1:
+        raise ValueError("CD nozzle length must be positive and both ratios must exceed 1.")
+    if min(convergent_radius_ratio, divergent_radius_ratio) <= 0:
         raise ValueError("CD nozzle fillet ratios must be positive.")
-    if not isfinite(boundary_layer_thickness) or boundary_layer_thickness < 0:
+    if boundary_layer_thickness < 0:
         raise ValueError("Boundary-layer thickness must be finite and nonnegative.")
-
-    _, transition, throat = contour
-    throat_x, throat_radius = throat
-    chamber_radius = transition[1]
-    exit_radius = throat_length / 2
     convergent_angle = radians(convergent_nozzle_angle)
-    bell_angle = radians(RAO_THROAT_ANGLE)
+    if not 0 < bell_angle < radians(90) or not 0 < convergent_angle < radians(90):
+        raise ValueError("CD nozzle angles must be between 0 and 90 degrees.")
+
+    exit_radius = throat_length / 2
+    throat_radius = exit_radius / expansion_ratio
+    for step in range(6):
+        bell_rise = exit_radius - throat_radius
+        divergent_radius = min(
+            divergent_radius_ratio * throat_radius,
+            0.5 * bell_rise / (1 - cos(bell_angle)),
+        )
+        arc_dx = divergent_radius * sin(bell_angle)
+        arc_dr = divergent_radius * (1 - cos(bell_angle))
+        throat_x = -(arc_dx + 2 * (bell_rise - arc_dr) / tan(bell_angle))
+        if not throat_y_slope or step == 5:
+            break
+        area_scale = 1 + throat_x * throat_y_slope
+        if area_scale <= 0:
+            raise ValueError("Toroidal throat sits beyond the axis of symmetry.")
+        throat_radius = (exit_radius / expansion_ratio) / area_scale
+    if throat_radius <= boundary_layer_thickness:
+        raise ValueError("The CD throat is too small for the two boundary layers.")
+    if throat_radius >= exit_radius:
+        raise ValueError("The CD throat radius must remain smaller than the exit radius.")
+
+    chamber_radius = contraction_ratio * throat_radius
     inlet_length = 2 * chamber_radius
     clear_inlet_length = inlet_length - 2 * boundary_layer_thickness
     if clear_inlet_length <= 0:
         raise ValueError("The CD inlet is too narrow for its boundary layers.")
-    available_fillet_radius = (
-        (chamber_radius - throat_radius) / (1 - cos(convergent_angle))
-    )
+    available_fillet_radius = (chamber_radius - throat_radius) / (1 - cos(convergent_angle))
     # Reserve part of the corner height for the straight run between both fillets.
     inlet_radius = min(
         boundary_layer_thickness + clear_inlet_length * FILLET_RADIUS_RATIO,
@@ -53,17 +79,6 @@ def fillet(
     convergent_radius = min(
         convergent_radius_ratio * throat_radius,
         0.9 * available_fillet_radius - inlet_radius,
-    )
-
-    # The bell control point must stay between its start and the exit.
-    bell_rise = exit_radius - throat_radius
-    available_bell_length = -throat_x - bell_rise / tan(bell_angle)
-    if available_bell_length <= 0:
-        raise ValueError("The bell is too short for its throat angle.")
-    divergent_radius = min(
-        divergent_radius_ratio * throat_radius,
-        0.5 * available_bell_length
-        / (sin(bell_angle) - (1 - cos(bell_angle)) / tan(bell_angle)),
     )
 
     convergent_center = throat_x, throat_radius + convergent_radius
@@ -78,16 +93,15 @@ def fillet(
     if convergent_arc[0][1] >= chamber_radius:
         raise ValueError("The convergent throat fillet does not fit the contraction ratio.")
 
-    transition = (
+    transition_x = (
         convergent_arc[0][0]
-        - (chamber_radius - convergent_arc[0][1]) / tan(convergent_angle),
-        chamber_radius,
+        - (chamber_radius - convergent_arc[0][1]) / tan(convergent_angle)
     )
-    inlet = transition[0] - (contour[1][0] - contour[0][0]), chamber_radius
+    inlet = transition_x - chamber_radius / 2, chamber_radius
     inlet_tangent = inlet_radius * tan(convergent_angle / 2)
-    inlet_fillet_start = transition[0] - inlet_tangent, chamber_radius
+    inlet_fillet_start = transition_x - inlet_tangent, chamber_radius
     inlet_fillet_end = (
-        transition[0] + inlet_tangent * cos(convergent_angle),
+        transition_x + inlet_tangent * cos(convergent_angle),
         chamber_radius - inlet_tangent * sin(convergent_angle),
     )
     inlet_fillet = [
@@ -105,26 +119,17 @@ def fillet(
         for step in range(1, 4)
     ]
     bell_start = divergent_arc[-1]
-    bell_length = -bell_start[0]
-    if bell_length <= 0 or bell_start[1] >= exit_radius:
-        raise ValueError("The divergent throat fillet does not fit the bell nozzle.")
-
-    control = (
-        bell_start[0] + (exit_radius - bell_start[1]) / tan(bell_angle),
-        exit_radius,
-    )
-    if not bell_start[0] < control[0] < 0:
-        raise ValueError("The selected ratios do not leave room for the Rao parabola.")
-
+    control = bell_start[0] / 2, exit_radius
+    end = 0.0, exit_radius
+    knots = [0.0] * 4 + [k / 7 for k in range(1, 7)] + [1.0] * 4
     bell = []
-    for step in range(1, 10):
-        fraction = step / 9
-        remaining = 1 - fraction
+    for t1, t2, t3 in zip(knots[2:11], knots[3:12], knots[4:13]):
+        w0 = ((1 - t1) * (1 - t2) + (1 - t2) * (1 - t3) + (1 - t3) * (1 - t1)) / 3
+        w2 = (t1 * t2 + t2 * t3 + t3 * t1) / 3
+        w1 = 1 - w0 - w2
         bell.append((
-            remaining ** 2 * bell_start[0] + 2 * remaining * fraction * control[0],
-            remaining ** 2 * bell_start[1]
-            + 2 * remaining * fraction * control[1]
-            + fraction ** 2 * exit_radius,
+            w0 * bell_start[0] + w1 * control[0] + w2 * end[0],
+            w0 * bell_start[1] + w1 * control[1] + w2 * end[1],
         ))
 
     profile = [inlet, *inlet_fillet, *convergent_arc, *divergent_arc, *bell]
@@ -133,20 +138,20 @@ def fillet(
 
 
 def cd_nozzle_contour(
-    surface,
-    throat_end,
+    spike_entry,
+    cowl_lip,
     throat_direction,
     throat_length,
     contraction_ratio,
     expansion_ratio,
+    bell_angle,
     convergent_radius_ratio=CONVERGENT_RADIUS_RATIO,
     divergent_radius_ratio=DIVERGENT_RADIUS_RATIO,
     boundary_layer_thickness=0.0,
     convergent_nozzle_angle=CONVERGENT_NOZZLE_ANGLE,
+    toroidal=False,
 ):
-    """Return the extended spike surface and matching upper CD-nozzle wall."""
-    if len(surface) < 2:
-        raise ValueError("The aerospike contour must contain at least two points.")
+    """Return the lower and upper CD-nozzle walls placed between spike_entry and cowl_lip."""
     direction_length = hypot(*throat_direction)
     if direction_length == 0:
         raise ValueError("The throat direction must be non-zero.")
@@ -154,38 +159,17 @@ def cd_nozzle_contour(
     radial = tuple(value / direction_length for value in throat_direction)
     axial = radial[1], -radial[0]
     center = (
-        (surface[0][0] + throat_end[0]) / 2,
-        (surface[0][1] + throat_end[1]) / 2,
+        (spike_entry[0] + cowl_lip[0]) / 2,
+        (spike_entry[1] + cowl_lip[1]) / 2,
     )
-    values = throat_length, contraction_ratio, expansion_ratio
-    if not all(isfinite(value) for value in values):
-        raise ValueError("CD nozzle dimensions and ratios must be finite.")
-    if throat_length <= 0 or contraction_ratio <= 1 or expansion_ratio <= 1:
-        raise ValueError("CD nozzle length must be positive and both ratios must exceed 1.")
-
-    angle = radians(CONICAL_NOZZLE_ANGLE)
-    convergent_angle = radians(CONVERGENT_NOZZLE_ANGLE)
-    if not 0 < angle < radians(90) or not 0 < convergent_angle < radians(90):
-        raise ValueError("CD nozzle angles must be between 0 and 90 degrees.")
-
-    small_throat_length = throat_length / expansion_ratio
-    throat_radius = small_throat_length / 2
-    chamber_radius = contraction_ratio * throat_radius
-    bell_length = (
-        BELL_LENGTH_PERCENT
-        * (throat_length - small_throat_length) / 2
-        / tan(angle)
-    )
-    throat = -bell_length, throat_radius
-    transition = (
-        throat[0] - (chamber_radius - throat_radius) / tan(convergent_angle),
-        chamber_radius,
-    )
-    inlet = transition[0] - chamber_radius / 2, chamber_radius
-    profile = fillet(
-        [inlet, transition, throat], throat_length,
-        convergent_radius_ratio, divergent_radius_ratio, boundary_layer_thickness,
-        convergent_nozzle_angle,
+    if toroidal and center[1] <= 0:
+        raise ValueError("Toroidal CD nozzle center must lie above the symmetry axis.")
+    throat_y_slope = axial[1] / center[1] if toroidal else 0.0
+    profile = _build_profile(
+        throat_length, contraction_ratio, expansion_ratio, bell_angle,
+        convergent_radius_ratio, divergent_radius_ratio,
+        boundary_layer_thickness, convergent_nozzle_angle,
+        throat_y_slope=throat_y_slope,
     )
 
     def placed(side):
@@ -198,5 +182,5 @@ def cd_nozzle_contour(
         ]
 
     lower, upper = placed(-1), placed(1)
-    lower[-1], upper[-1] = surface[0], throat_end
-    return lower[:-1] + surface, upper
+    lower[-1], upper[-1] = spike_entry, cowl_lip
+    return lower, upper

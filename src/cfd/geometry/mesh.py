@@ -38,6 +38,7 @@ def _solve_u_over_sinh_u(target_ratio):
     return 0.5 * (lo + hi)
 
 
+# Solve BL Cells and Progression Ratio along thickness
 def bl_cells_and_progression(length, first_cell):
     r_max = 1.15
     target = length / first_cell
@@ -60,6 +61,7 @@ def bl_cells_and_progression(length, first_cell):
     return n, lo
 
 
+# 1D Transfinite Beta meshing with given start and end point mesh size, and max progression ratio
 def beta(curves, length, h0, h1, r0, min_cells=10):
     if abs(h0 - h1) <= 1e-9 * max(h0, h1):
         return transfinite(curves, max(min_cells, round(length / h1)), "Progression", 1.0)
@@ -70,6 +72,7 @@ def beta(curves, length, h0, h1, r0, min_cells=10):
     return transfinite(curves, cells, "Beta", coef)
 
 
+# 1D Transfinite Beta meshing with given start point and number of points
 def beta_fixed_n(curves, length, h_start, cells):
     mean_h = length / cells
     if h_start >= mean_h:
@@ -80,6 +83,7 @@ def beta_fixed_n(curves, length, h_start, cells):
     return transfinite(curves, cells, "Beta", coef), h_end
 
 
+# 1D Transfinite Bump meshing with given end points and number of cells
 def bump(curves, length, h_end, cells):
     mean_h = length / cells
     if h_end >= mean_h:

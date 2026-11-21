@@ -9,12 +9,14 @@ from cfd.geometry.conv_thruster import conv_nozzle_contour
 from core.input import process_inputs_on_gmsh_geometry
 
 
-THROAT_END = (-5e-05, 0.9998)
 FAR_RIGHT = 24
 FAR_TOP = 9
 FAR_LEFT = -2.5
-THRUSTER_COWL_TOP = (-5e-05, 1.3)
-THRUSTER_COWL_BACK = (-0.375, 1.3)
+COWL_TOP_FACTOR = 1.3
+COWL_BACK_FACTOR = -0.375
+COWL_CLEARANCE_FACTOR = 0.1
+COWL_BACK_MIN_FACTOR = -2.0
+COWL_TOP_MAX_FACTOR = 6.0
 
 
 @dataclass
@@ -47,20 +49,24 @@ def _left_normal(a, b):
     return -dy / length, dx / length
 
 
-def _throat_geometry(results, surface):
+def _throat_geometry(results, surface, scale):
     throat_length = float(results["throat_length"])
-    direction = _left_normal(surface[0], surface[1])
-    end = (surface[0][0] + throat_length * direction[0],
-           surface[0][1] + throat_length * direction[1])
-    return end, direction
+    throat_direction = _left_normal(surface[0], surface[1])
+    flow_direction = throat_direction[1], -throat_direction[0]
+    cowl_lip = (0.0, scale)
+    spike_entry = (
+        cowl_lip[0] - throat_length * throat_direction[0],
+        cowl_lip[1] - throat_length * throat_direction[1],
+    )
+    return cowl_lip, spike_entry, throat_direction, flow_direction
 
 
-def _round_truncation(surface, scale):
+def _round_truncation(surface, scale, min_index=0):
     if abs(surface[-1][1]) <= scale * 1e-9:
         return surface, False
     cutoff_x, cutoff_y = surface[-1]
     wanted_radius = scale * 0.025
-    for i in range(len(surface) - 2, -1, -1):
+    for i in range(len(surface) - 2, min_index - 1, -1):
         start, end = surface[i], surface[i + 1]
         dx, dy = end[0] - start[0], end[1] - start[1]
         length = hypot(dx, dy)
@@ -178,6 +184,30 @@ def _offset_arc(points, thickness):
     ]
 
 
+def _subdivide_segment(start, end, segments):
+    return [
+        (start[0] + (end[0] - start[0]) * step / segments,
+         start[1] + (end[1] - start[1]) * step / segments)
+        for step in range(1, segments)
+    ]
+
+
+def _cowl_anchors(cowl_lip, scale, thruster_points):
+    min_x = min(point[0] for point in thruster_points)
+    max_y = max(point[1] for point in thruster_points)
+    cowl_back_x = min(scale * COWL_BACK_FACTOR, min_x - scale * COWL_CLEARANCE_FACTOR)
+    cowl_top_y = max(scale * COWL_TOP_FACTOR, max_y + scale * COWL_CLEARANCE_FACTOR)
+    if cowl_back_x < scale * COWL_BACK_MIN_FACTOR or cowl_top_y > scale * COWL_TOP_MAX_FACTOR:
+        raise ValueError("The thruster geometry exceeds the allowed outer cowl expansion bounds.")
+    if any(point[1] <= 0 for point in thruster_points):
+        raise ValueError("The thruster geometry crosses the symmetry axis.")
+    return {
+        "cowl_top": (cowl_lip[0], cowl_top_y),
+        "cowl_back": (cowl_back_x, cowl_top_y),
+        "cowl_bottom": (cowl_back_x, 0.0),
+    }
+
+
 def _domain_scale(results):
     aerospike_type = results.get("aerospike_type")
     scale = (
@@ -194,8 +224,8 @@ def inlet_direction(results):
     scale = _domain_scale(results)
     surface = [(-float(x), scale - float(radius))
                for x, radius in zip(results["x"][:2], results["R_x"][:2])]
-    _, throat_direction = _throat_geometry(results, surface)
-    return throat_direction[1], -throat_direction[0]
+    _, _, _, flow_direction = _throat_geometry(results, surface, scale)
+    return flow_direction
 
 
 def build_geometry(case):
@@ -211,7 +241,7 @@ def build_geometry(case):
     throat_eps = float(case["definition"]["effective_throat_eps"])
     thruster_type = "none" if not thruster_nozzle else "cd" if throat_eps > 1 else "conv"
     surface = [(-float(x), scale - float(radius)) for x, radius in zip(results["x"], results["R_x"])]
-    throat_end_point, throat_direction = _throat_geometry(results, surface)
+    cowl_lip, spike_entry, throat_direction, flow_direction = _throat_geometry(results, surface, scale)
     throat_length = float(results["throat_length"])
     sonic_throat_length = throat_length / throat_eps if thruster_type == "cd" else throat_length
     max_bl_thickness = 0.15 * sonic_throat_length
@@ -224,30 +254,54 @@ def build_geometry(case):
     cowl = secondary_boundary_layer = None
     original_surface_count = len(surface)
     throat_index = 0
-    if thruster_type == "cd":
-        if throat_length / throat_eps <= 2 * boundary_layer_thickness:
-            raise ValueError("The CD throat is too small for the two boundary layers.")
-        surface, cowl = cd_nozzle_contour(
-            surface, throat_end_point, throat_direction, throat_length,
-            contraction_ratio, throat_eps,
-            boundary_layer_thickness=boundary_layer_thickness,
-            convergent_nozzle_angle=convergent_nozzle_angle,
-        )
-        throat_index = len(surface) - original_surface_count
-    elif thruster_type == "conv":
-        surface = conv_nozzle_contour(
-            surface, throat_end_point, throat_direction, throat_length,
-            contraction_ratio, boundary_layer_thickness, convergent_nozzle_angle,
-        )
-        throat_index = len(surface) - original_surface_count
+    throat_buffer = throat_length / 5
+    if throat_eps > 1:
+        if (surface[0][0] - spike_entry[0]) * flow_direction[0] + (surface[0][1] - spike_entry[1]) * flow_direction[1] <= 0:
+            raise ValueError("First spike point must lie downstream of spike_entry for throat_eps > 1.")
+        # ponytail: Option A embeds the straight uniform-flow ramp inside BSpline(1) (~7.6 um max deviation); switch to Option B (explicit Line(12) in write_gmsh_geometry_file.py) if exact straightness is required.
+        if thruster_type == "cd":
+            if throat_length / throat_eps <= 2 * boundary_layer_thickness:
+                raise ValueError("The CD throat is too small for the two boundary layers.")
+            entry_pm_angle = results.get("entry_pm_angle")
+            if entry_pm_angle is None or not isfinite(float(entry_pm_angle)) or float(entry_pm_angle) <= 0:
+                raise ValueError("A positive finite entry_pm_angle is required for CD thruster geometry.")
+            lower, cowl = cd_nozzle_contour(
+                spike_entry, cowl_lip, throat_direction, throat_length,
+                contraction_ratio, throat_eps, float(entry_pm_angle) / 2,
+                boundary_layer_thickness=boundary_layer_thickness,
+                convergent_nozzle_angle=convergent_nozzle_angle,
+                toroidal=results.get("aerospike_type") == "toroidal",
+            )
+            surface = lower + surface
+            throat_index = len(lower) - 1
+        else:
+            inlet_end_spike = (
+                spike_entry[0] - throat_buffer * flow_direction[0],
+                spike_entry[1] - throat_buffer * flow_direction[1],
+            )
+            segments = max(1, min(16, 770 - len(surface)))
+            surface = [
+                inlet_end_spike,
+                spike_entry,
+                *_subdivide_segment(spike_entry, surface[0], segments),
+                *surface,
+            ]
     else:
-        extension_direction = throat_direction[1], -throat_direction[0]
-        throat_buffer = throat_length / 5
-        surface.insert(0, (
-            surface[0][0] - throat_buffer * extension_direction[0],
-            surface[0][1] - throat_buffer * extension_direction[1],
-        ))
-    surface, truncated = _round_truncation(surface, scale)
+        surface[0] = spike_entry
+        if (surface[1][0] - surface[0][0]) * flow_direction[0] + (surface[1][1] - surface[0][1]) * flow_direction[1] <= 0:
+            raise ValueError("Second spike point must lie downstream of spike_entry.")
+        if thruster_type == "conv":
+            surface = conv_nozzle_contour(
+                surface, cowl_lip, throat_direction, throat_length,
+                contraction_ratio, boundary_layer_thickness, convergent_nozzle_angle,
+            )
+            throat_index = len(surface) - original_surface_count
+        else:
+            surface.insert(0, (
+                spike_entry[0] - throat_buffer * flow_direction[0],
+                spike_entry[1] - throat_buffer * flow_direction[1],
+            ))
+    surface, truncated = _round_truncation(surface, scale, min_index=throat_index)
     spike = surface + ([(surface[-1][0], 0.0)] if truncated else [])
     if len(spike) > 800:
         raise ValueError("The spike contour must contain no more than 800 points for meshing.")
@@ -256,9 +310,8 @@ def build_geometry(case):
         secondary_boundary_layer = _offset_contour(
             cowl, -boundary_layer_thickness, normal_end=True
         )
-        axial = throat_direction[1], -throat_direction[0]
         if any(
-            (b[0] - a[0]) * axial[0] + (b[1] - a[1]) * axial[1] <= 0
+            (b[0] - a[0]) * flow_direction[0] + (b[1] - a[1]) * flow_direction[1] <= 0
             for contour in (boundary_layer[:len(cowl)], secondary_boundary_layer)
             for a, b in zip(contour, contour[1:])
         ):
@@ -290,72 +343,52 @@ def build_geometry(case):
             boundary_layer[:throat_index]
             + _greville_resample(boundary_layer[throat_index:], open_count, h_thruster, h_spike)
         )
-    reference_throat = tuple(scale * value for value in THROAT_END)
-    shift = (throat_end_point[0] - reference_throat[0],
-             throat_end_point[1] - reference_throat[1])
-
-    def shifted(point):
-        return scale * point[0] + shift[0], scale * point[1] + shift[1]
-
     if thruster_type == "cd":
-        cowl_back_point = shifted(THRUSTER_COWL_BACK)
-        anchors = {
-            "cowl_top": shifted(THRUSTER_COWL_TOP),
-            "cowl_back": cowl_back_point,
-            "cowl_bottom": (cowl_back_point[0], 0.0),
-        }
+        anchors = _cowl_anchors(cowl_lip, scale, spike[:throat_index + 1] + cowl)
     elif thruster_type == "conv":
-        extension_direction = throat_direction[1], -throat_direction[0]
-        to_throat = (throat_end_point[0] - spike[0][0], throat_end_point[1] - spike[0][1])
-        extension_length = (to_throat[0] * extension_direction[0]
-                            + to_throat[1] * extension_direction[1])
+        to_throat = (cowl_lip[0] - spike[0][0], cowl_lip[1] - spike[0][1])
+        extension_length = (to_throat[0] * flow_direction[0]
+                            + to_throat[1] * flow_direction[1])
         conv_inlet_length = (to_throat[0] * throat_direction[0]
                              + to_throat[1] * throat_direction[1])
         if extension_length <= 0 or conv_inlet_length <= 2 * boundary_layer_thickness:
             raise ValueError("The convergent inlet does not fit ahead of the spike throat.")
         convergent_start_point = (
-            throat_end_point[0] - extension_length * extension_direction[0],
-            throat_end_point[1] - extension_length * extension_direction[1],
+            cowl_lip[0] - extension_length * flow_direction[0],
+            cowl_lip[1] - extension_length * flow_direction[1],
         )
         offset_start_point = (
             convergent_start_point[0] - boundary_layer_thickness * throat_direction[0],
             convergent_start_point[1] - boundary_layer_thickness * throat_direction[1],
         )
         offset_throat_point = (
-            throat_end_point[0] - boundary_layer_thickness * throat_direction[0],
-            throat_end_point[1] - boundary_layer_thickness * throat_direction[1],
+            cowl_lip[0] - boundary_layer_thickness * throat_direction[0],
+            cowl_lip[1] - boundary_layer_thickness * throat_direction[1],
         )
-        cowl_back_point = shifted(THRUSTER_COWL_BACK)
         anchors = {
-            "throat_end": throat_end_point,
+            "throat_end": cowl_lip,
             "convergent_start": convergent_start_point,
             "offset_throat": offset_throat_point,
             "offset_start": offset_start_point,
-            "cowl_top": shifted(THRUSTER_COWL_TOP),
-            "cowl_back": cowl_back_point,
-            "cowl_bottom": (cowl_back_point[0], 0.0),
+            **_cowl_anchors(cowl_lip, scale, [convergent_start_point, cowl_lip, *spike[:throat_index + 1]]),
         }
     else:
-        cowl_back_point = shifted(THRUSTER_COWL_BACK)
+        inlet_end_point = (
+            cowl_lip[0] - throat_buffer * flow_direction[0],
+            cowl_lip[1] - throat_buffer * flow_direction[1],
+        )
         anchors = {
-            "inlet_end": (
-                throat_end_point[0] - throat_buffer * extension_direction[0],
-                throat_end_point[1] - throat_buffer * extension_direction[1],
-            ),
-            "throat_end": throat_end_point,
+            "inlet_end": inlet_end_point,
+            "throat_end": cowl_lip,
             "offset_start": (
-                throat_end_point[0] - throat_buffer * extension_direction[0]
-                - boundary_layer_thickness * throat_direction[0],
-                throat_end_point[1] - throat_buffer * extension_direction[1]
-                - boundary_layer_thickness * throat_direction[1],
+                inlet_end_point[0] - boundary_layer_thickness * throat_direction[0],
+                inlet_end_point[1] - boundary_layer_thickness * throat_direction[1],
             ),
             "offset_throat": (
-                throat_end_point[0] - boundary_layer_thickness * throat_direction[0],
-                throat_end_point[1] - boundary_layer_thickness * throat_direction[1],
+                cowl_lip[0] - boundary_layer_thickness * throat_direction[0],
+                cowl_lip[1] - boundary_layer_thickness * throat_direction[1],
             ),
-            "cowl_top": shifted(THRUSTER_COWL_TOP),
-            "cowl_back": cowl_back_point,
-            "cowl_bottom": (cowl_back_point[0], 0.0),
+            **_cowl_anchors(cowl_lip, scale, [inlet_end_point, cowl_lip, *spike[:2]]),
         }
     anchors.update({
         "far_right_axis": (scale * FAR_RIGHT, 0.0),

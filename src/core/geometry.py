@@ -46,6 +46,7 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
         "length": None,
         "width": None,
         "throat_length": None,
+        "entry_pm_angle": None,
         "bl_thickness": None,
         "bl_first_cell": None,
         "ideal_expansion_pressure": None,
@@ -69,6 +70,7 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
         pm_from_mach = cea.prandtl_meyer_from_mach(inputs)
         entry_mach = cea.entry_conditions(inputs)
         entry_pm_angle = pm_from_mach(entry_mach)
+        results["entry_pm_angle"] = entry_pm_angle
     except Exception as e:
         errors.append(f"CFD inlet conditions calculation failed with {e}")
         return {}, {}, errors
