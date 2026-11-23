@@ -9,6 +9,7 @@ from cfd.geometry.domain_geometry import build_geometry
 MAIN_BOUNDARY_LAYER_START = 1001
 SECONDARY_BOUNDARY_LAYER_START = 4001
 COWL_START = 3001
+WAKE_RIGHT_PROGRESSION = 1.04  # ponytail: fixed progression across wake right edge; upgrade to adaptive if needed
 
 
 def _point(point_id, coordinates):
@@ -91,11 +92,17 @@ def generate_geometry_file(case):
         "far_left_top": far_left_top,
         "far_left_axis": far_left_axis,
     })
+    if not truncated:
+        wake_axis, wake_top = far_left_axis + 1, far_left_axis + 2
+        anchor_ids.update({
+            "wake_axis": wake_axis,
+            "wake_top": wake_top,
+        })
     fixed_points = {point_id: anchors[name] for name, point_id in anchor_ids.items()}
-    farfield_end_id = spike_ids[-1] if not truncated else offset_ids[-1]
-    triangle_offset_end = "103, " if not truncated else ""
+    farfield_end_id = wake_axis if not truncated else offset_ids[-1]
+    triangle_offset_end = "107, -106, " if not truncated else ""
     thruster_loop_curve = "-111, " if throat_index > 0 else ""
-    symmetry_curves = "304, 308" if not truncated else "103, 304, 308"
+    symmetry_curves = "105, 304, 308" if not truncated else "103, 304, 308"
 
     cfd_inputs = (case.get("cfd") or {}).get("inputs") or {}
     grid_density = cfd_inputs.get("grid_density", 1.0)
@@ -119,19 +126,44 @@ def generate_geometry_file(case):
 
     secondary_bl_cell_number = max(3, round(geometry.lengths["nozzle"] / spike_bl_start_cell_size))
     spike_bl_cell_number = max(3, round(mesh.DEFAULT_SPIKE_BL_CELL_NUMBER * factors["spike"]))
-    if not truncated:
-        spike_bl_curve = mesh.bump(
-            "1, 101", geometry.lengths["spike"], spike_bl_start_cell_size, spike_bl_cell_number
-        )
-        spike_bl_end_cell_size = spike_bl_start_cell_size
-    else:
-        spike_bl_curve, spike_bl_end_cell_size = mesh.beta_fixed_n(
-            "1, 101", geometry.lengths["spike"], spike_bl_start_cell_size, spike_bl_cell_number
-        )
+    spike_bl_curve, spike_bl_end_cell_size = mesh.beta_fixed_n(
+        "1, 101", geometry.lengths["spike"], spike_bl_start_cell_size, spike_bl_cell_number
+    )
 
     bl_thickness = hypot(boundary_layer[0][0] - spike[0][0], boundary_layer[0][1] - spike[0][1])
     bl_cell_number, bl_progression = mesh.bl_cells_and_progression(bl_thickness, delta_y1)
     boundary_layer_curves = "102, 104, 202, 203, 103" if throat_index > 0 else "102, 202, 203, 103"
+
+    if not truncated:
+        rp = WAKE_RIGHT_PROGRESSION
+        wake_right_bot = anchors["wake_top"][1] * (rp - 1.0) / (rp ** bl_cell_number - 1.0)
+        wake_cell_number = max(3, round(geometry.lengths["wake"] / spike_bl_end_cell_size))
+        wake_geometry = [
+            "",
+            "// Wake block geometry",
+            _point(wake_axis, fixed_points[wake_axis]),
+            _point(wake_top, fixed_points[wake_top]),
+            _line(105, spike_ids[-1], wake_axis),
+            _line(106, offset_ids[-1], wake_top),
+            _line(107, wake_axis, wake_top),
+        ]
+        wake_surface = [
+            "",
+            "// Quad mesh surface - Wake Relaxation",
+            "Curve Loop(104) = {106, -107, -105, 103};",
+            "Plane Surface(104) = {104};",
+            "Transfinite Surface {104};",
+            "Recombine Surface {104};",
+        ]
+        wake_mesh = [
+            mesh.transfinite("105, 106", wake_cell_number, "Progression", 1),
+            mesh.transfinite("107", bl_cell_number, "Progression", rp),
+        ]
+    else:
+        wake_right_bot = None
+        wake_geometry = []
+        wake_surface = []
+        wake_mesh = []
 
     if thruster_type == "cd":
         nozzle_points_and_curves = [
@@ -182,6 +214,7 @@ def generate_geometry_file(case):
         "",
         "// Offset end line",
         _line(103, spike_ids[-1], offset_ids[-1]),
+        *wake_geometry,
     ]
 
     triangle_loop = (
@@ -245,6 +278,9 @@ def generate_geometry_file(case):
         spike_bc_curves = "1"
         thruster_bl_mesh = []
 
+    if not truncated:
+        fluid_surfaces += ", 104"
+
     lines = [
         "// Aerospike Simulation Geometry",
         'SetFactory("OpenCASCADE");',
@@ -288,6 +324,7 @@ def generate_geometry_file(case):
         "",
         "",
         *spike_bl_surfaces,
+        *wake_surface,
         *cowl_surface,
         "",
         "// Flow domain",
@@ -317,6 +354,7 @@ def generate_geometry_file(case):
         *thruster_bl_mesh,
         spike_bl_curve,
         mesh.transfinite(boundary_layer_curves, bl_cell_number, "Progression", bl_progression),
+        *wake_mesh,
         "",
         "// Inlet & Nozzle",
         mesh.transfinite("10", inlet_cell_number, "Progression", 1),
@@ -348,9 +386,9 @@ def generate_geometry_file(case):
         mesh.beta(
             "-308",
             geometry.lengths["far_308"],
-            delta_y1 if not truncated else spike_bl_end_cell_size,
+            wake_right_bot if not truncated else spike_bl_end_cell_size,
             farfield_cell_size,
-            1.1 if not truncated else 1.02,
+            1.02,
             min_cells=10,
         ),
         "",

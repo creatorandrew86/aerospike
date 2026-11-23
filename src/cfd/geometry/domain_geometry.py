@@ -1,5 +1,6 @@
 """Calculate physical geometry for Gmsh aerospike meshes."""
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from math import atan2, cos, hypot, isfinite, log, sin, sqrt
 
@@ -17,6 +18,8 @@ COWL_BACK_FACTOR = -0.375
 COWL_CLEARANCE_FACTOR = 0.1
 COWL_BACK_MIN_FACTOR = -2.0
 COWL_TOP_MAX_FACTOR = 6.0
+MAX_END_BL_FACTOR = 0.01
+WAKE_LENGTH_FACTOR = 10.0
 
 
 @dataclass
@@ -129,9 +132,12 @@ def _greville_resample(points, count, h0=1.0, h1=1.0):
 
 
 def _offset_contour(contour, thickness, normal_end):
+    thicknesses = [thickness] * len(contour) if isinstance(thickness, (int, float)) else thickness
+    if len(thicknesses) != len(contour):
+        raise ValueError("Boundary-layer thickness array must match contour point count.")
     normals = [_left_normal(a, b) for a, b in zip(contour, contour[1:])]
-    offset = [(contour[0][0] + thickness * normals[0][0],
-               contour[0][1] + thickness * normals[0][1])]
+    offset = [(contour[0][0] + thicknesses[0] * normals[0][0],
+               contour[0][1] + thicknesses[0] * normals[0][1])]
     last_surface_index = len(contour) - 1 if normal_end else len(contour) - 2
     for i in range(1, last_surface_index):
         before, after = normals[i - 1], normals[i]
@@ -141,17 +147,50 @@ def _offset_contour(contour, thickness, normal_end):
         else:
             nx = (before[0] + after[0]) / denominator
             ny = (before[1] + after[1]) / denominator
-        offset.append((contour[i][0] + thickness * nx,
-                       contour[i][1] + thickness * ny))
+        offset.append((contour[i][0] + thicknesses[i] * nx,
+                       contour[i][1] + thicknesses[i] * ny))
     if not normal_end:
         surface_end = contour[last_surface_index]
-        offset.append((surface_end[0] + thickness, surface_end[1]))
-        offset.append((contour[-1][0] + thickness, 0.0))
+        offset.append((surface_end[0] + thicknesses[last_surface_index], surface_end[1]))
+        offset.append((contour[-1][0] + thicknesses[-1], 0.0))
     else:
         surface_end = contour[-1]
-        offset.append((surface_end[0] + thickness * normals[-1][0],
-                       surface_end[1] + thickness * normals[-1][1]))
+        offset.append((surface_end[0] + thicknesses[-1] * normals[-1][0],
+                       surface_end[1] + thicknesses[-1] * normals[-1][1]))
     return offset
+
+
+def _spike_bl_thicknesses(spike, throat_index, start_x, throat_bl, max_end_bl, x_ref, bl_ref):
+    """Map throat and marched spike BL thicknesses onto resampled spike contour points."""
+    if (
+        not bl_ref
+        or len(bl_ref) != len(x_ref)
+        or any(v is None or not isfinite(float(v)) or float(v) <= 0 for v in bl_ref)
+        or any(x is None or not isfinite(float(x)) for x in x_ref)
+    ):
+        return [float(throat_bl)] * len(spike)
+
+    ref_x = [float(start_x)]
+    ref_t = [float(throat_bl)]
+    for x_val, bl_val in zip(x_ref, bl_ref):
+        x_coord = float(x_val)
+        clamped = min(max_end_bl, max(ref_t[-1], 3.0 * float(bl_val)))
+        if x_coord > ref_x[-1]:
+            ref_x.append(x_coord)
+            ref_t.append(clamped)
+
+    thicknesses = []
+    for i, (x_pt, _) in enumerate(spike):
+        if i <= throat_index or x_pt <= ref_x[0]:
+            thicknesses.append(float(throat_bl))
+        elif x_pt >= ref_x[-1]:
+            thicknesses.append(ref_t[-1])
+        else:
+            idx = bisect_right(ref_x, x_pt) - 1
+            span = ref_x[idx + 1] - ref_x[idx]
+            frac = (x_pt - ref_x[idx]) / span if span > 0 else 0.0
+            thicknesses.append(ref_t[idx] + frac * (ref_t[idx + 1] - ref_t[idx]))
+    return thicknesses
 
 
 def _offset_arc(points, thickness):
@@ -305,7 +344,25 @@ def build_geometry(case):
     spike = surface + ([(surface[-1][0], 0.0)] if truncated else [])
     if len(spike) > 800:
         raise ValueError("The spike contour must contain no more than 800 points for meshing.")
-    boundary_layer = _offset_contour(spike, boundary_layer_thickness, normal_end=not truncated)
+    h_start = (
+        _curve_length(spike[:throat_index + 1]) / mesh.DEFAULT_THRUSTER_BL_CELL_NUMBER
+        if throat_index > 0
+        else 0.9 * max(throat_length - 2.0 * boundary_layer_thickness, 1e-9) / mesh.DEFAULT_INLET_CELL_NUMBER
+    )
+    h_spike = _curve_length(spike[throat_index:]) / mesh.DEFAULT_SPIKE_BL_CELL_NUMBER
+    open_count = min(800 - throat_index, max(len(spike) - throat_index, 400))
+    spike = spike[:throat_index] + _greville_resample(spike[throat_index:], open_count, h_start, h_spike)
+    max_end_bl_thickness = max(boundary_layer_thickness, MAX_END_BL_FACTOR * _curve_length(spike[throat_index:]))
+    spike_thicknesses = _spike_bl_thicknesses(
+        spike,
+        throat_index,
+        spike[throat_index][0] if throat_index > 0 else spike_entry[0],
+        boundary_layer_thickness,
+        max_end_bl_thickness,
+        [-float(x) for x in results["x"]],
+        results.get("bl_thickness_x"),
+    )
+    boundary_layer = _offset_contour(spike, spike_thicknesses, normal_end=not truncated)
     if thruster_type == "cd":
         secondary_boundary_layer = _offset_contour(
             cowl, -boundary_layer_thickness, normal_end=True
@@ -326,23 +383,14 @@ def build_geometry(case):
             spike[0][0] + boundary_layer_thickness * throat_direction[0],
             spike[0][1] + boundary_layer_thickness * throat_direction[1],
         )
-    if throat_index > 0:
-        thruster_len = max(
-            _curve_length(spike[:throat_index + 1]),
-            _curve_length(boundary_layer[:throat_index + 1]),
+    if any(
+        (ob[0] - oa[0]) * (sb[0] - sa[0]) + (ob[1] - oa[1]) * (sb[1] - sa[1]) <= 0
+        for (sa, sb), (oa, ob) in zip(
+            zip(spike[throat_index:], spike[throat_index + 1:]),
+            zip(boundary_layer[throat_index:], boundary_layer[throat_index + 1:]),
         )
-        spike_len = max(
-            _curve_length(spike[throat_index:]),
-            _curve_length(boundary_layer[throat_index:]),
-        )
-        h_thruster = thruster_len / mesh.DEFAULT_THRUSTER_BL_CELL_NUMBER
-        h_spike = spike_len / mesh.DEFAULT_SPIKE_BL_CELL_NUMBER
-        open_count = min(800 - throat_index, max(len(spike) - throat_index, 400))
-        spike = spike[:throat_index] + _greville_resample(spike[throat_index:], open_count, h_thruster, h_spike)
-        boundary_layer = (
-            boundary_layer[:throat_index]
-            + _greville_resample(boundary_layer[throat_index:], open_count, h_thruster, h_spike)
-        )
+    ):
+        raise ValueError("The spike boundary layer folds at this geometry.")
     if thruster_type == "cd":
         anchors = _cowl_anchors(cowl_lip, scale, spike[:throat_index + 1] + cowl)
     elif thruster_type == "conv":
@@ -388,7 +436,7 @@ def build_geometry(case):
                 cowl_lip[0] - boundary_layer_thickness * throat_direction[0],
                 cowl_lip[1] - boundary_layer_thickness * throat_direction[1],
             ),
-            **_cowl_anchors(cowl_lip, scale, [inlet_end_point, cowl_lip, *spike[:2]]),
+            **_cowl_anchors(cowl_lip, scale, [inlet_end_point, cowl_lip, spike[0], spike_entry]),
         }
     anchors.update({
         "far_right_axis": (scale * FAR_RIGHT, 0.0),
@@ -396,7 +444,15 @@ def build_geometry(case):
         "far_left_top": (scale * FAR_LEFT, scale * FAR_TOP),
         "far_left_axis": (scale * FAR_LEFT, 0.0),
     })
-    farfield_end = spike[-1] if not truncated else boundary_layer[-1]
+    if not truncated:
+        end_bl_thickness = _distance(spike[-1], boundary_layer[-1])
+        wake_length = min(
+            WAKE_LENGTH_FACTOR * end_bl_thickness,
+            0.5 * (anchors["far_right_axis"][0] - spike[-1][0]),
+        )
+        anchors["wake_axis"] = (spike[-1][0] + wake_length, 0.0)
+        anchors["wake_top"] = (spike[-1][0] + wake_length, end_bl_thickness)
+    farfield_end = anchors["wake_axis"] if not truncated else boundary_layer[-1]
     lengths = {
         "spike": max(_curve_length(spike[throat_index:]), _curve_length(boundary_layer[throat_index:])),
         "far_304": _distance(anchors["far_left_axis"], anchors["cowl_bottom"]),
@@ -405,6 +461,11 @@ def build_geometry(case):
         "far_307": _distance(anchors["far_right_axis"], anchors["far_right_top"]),
         "far_308": _distance(farfield_end, anchors["far_right_axis"]),
     }
+    if not truncated:
+        lengths["wake"] = max(
+            _distance(spike[-1], anchors["wake_axis"]),
+            _distance(boundary_layer[-1], anchors["wake_top"]),
+        )
     if throat_index > 0:
         lengths["thruster"] = max(
             _curve_length(spike[:throat_index + 1]),

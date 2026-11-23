@@ -7,7 +7,7 @@ DEFAULT_FARFIELD_CELL_SIZE = 0.19
 DEFAULT_COWL_CELL_SIZE = 0.028
 DEFAULT_INLET_CELL_NUMBER = 130
 DEFAULT_THRUSTER_BL_CELL_NUMBER = 250
-DEFAULT_SPIKE_BL_CELL_NUMBER = 1250
+DEFAULT_SPIKE_BL_CELL_NUMBER = 1450
 
 
 def density_factors(grid_density=1.0, bl_mesh_density=1.0):
@@ -81,16 +81,6 @@ def beta_fixed_n(curves, length, h_start, cells):
     coef = 1.0 / tanh(0.5 * u)
     h_end = h_start * cosh(0.5 * u) ** 2
     return transfinite(curves, cells, "Beta", coef), h_end
-
-
-# 1D Transfinite Bump meshing with given end points and number of cells
-def bump(curves, length, h_end, cells):
-    mean_h = length / cells
-    if h_end >= mean_h:
-        return transfinite(curves, cells, "Progression", 1.0)
-    u = _solve_u_over_sinh_u(h_end / mean_h)
-    b = 1.0 / cosh(0.5 * u) ** 2
-    return transfinite(curves, cells, "Bump", b)
 
 
 def transfinite(curves, cells, method, value):

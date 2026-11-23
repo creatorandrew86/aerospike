@@ -49,6 +49,7 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
         "entry_pm_angle": None,
         "bl_thickness": None,
         "bl_first_cell": None,
+        "bl_thickness_x": None,
         "ideal_expansion_pressure": None,
         "x": [None] * N,
         "R_x": [None] * N,
@@ -131,6 +132,8 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
 
     u_start = math.sqrt(max(0.0, entry_mach**2 - 1.0))
     u_end = math.sqrt(max(0.0, exit_mach**2 - 1.0))
+    mach_x = [None] * N
+
     for i in range(N):
         if i == 0:
             mach = entry_mach
@@ -167,6 +170,7 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
         results["x"][i] = x
         results["R_x"][i] = R
         results["eps_x"][i] = eps
+        mach_x[i] = mach
 
     if not sizing:
         spike_length = max(results["x"]) - min(results["x"])
@@ -190,29 +194,48 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
     if truncate_percent < 1.0:
         cutoff = results["x"][0] - (results["x"][0] - results["x"][-1]) * truncate_percent
         keep = sum(x >= cutoff for x in results["x"])
-        x_t, r_t, e_t = results["x"][:keep], results["R_x"][:keep], results["eps_x"][:keep]
+        x_t, r_t, e_t, m_t = results["x"][:keep], results["R_x"][:keep], results["eps_x"][:keep], mach_x[:keep]
         if 0 < keep < len(results["x"]) and x_t[-1] > cutoff:
             x0, x1 = results["x"][keep - 1], results["x"][keep]
             t = (x0 - cutoff) / (x0 - x1)
             x_t.append(cutoff)
             r_t.append(results["R_x"][keep - 1] + t * (results["R_x"][keep] - results["R_x"][keep - 1]))
             e_t.append(results["eps_x"][keep - 1] + t * (results["eps_x"][keep] - results["eps_x"][keep - 1]))
-        results["x"], results["R_x"], results["eps_x"] = x_t, r_t, e_t
+            m_t.append(mach_x[keep - 1] + t * (mach_x[keep] - mach_x[keep - 1]))
+        results["x"], results["R_x"], results["eps_x"], mach_x = x_t, r_t, e_t, m_t
+
+    if sizing and bl_thickness is not None and results["x"]:
+        try:
+            _, _, _, results["bl_thickness_x"] = _boundary_layer_properties(
+                throat_length, inputs, spike=(results["x"], results["R_x"], mach_x)
+            )
+        except (ValueError, ZeroDivisionError, RuntimeError) as exc:
+            warnings.warn(
+                f"Spike boundary-layer march failed; using fixed throat thickness ({exc})",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            results["bl_thickness_x"] = None
 
     return results, cfd_setup, errors
 
 
-def _boundary_layer_properties(throat_gap: float, inputs: dict) -> tuple[float, float, float]:
-    """Compute sonic-throat Cd, BL thickness, and y+=1 first cell height.
+def _boundary_layer_properties(
+    throat_gap: float,
+    inputs: dict,
+    spike: tuple[list[float], list[float], list[float]] | None = None,
+) -> tuple[float, float, float] | tuple[float, float, float, list[float]]:
+    """Compute sonic-throat Cd, BL thickness, y+=1 first cell height, and optional spike BL march.
 
     Uses Stratford (1964) turbulent Cd (Rc/dh=1), Crocco-Busemann 1/7-law delta/delta*,
-    Tang & Fenn (1978) laminar Cd, and clamped low-Re bounds.
-    ponytail: leaves Re=1e5 switch as-is and keeps M=1 incompressible Cf (~2% conservative on dy1).
+    Tang & Fenn (1978) laminar Cd, clamped low-Re bounds, and an optional compressible 2D
+    Von Karman momentum-integral march along the spike surface.
     """
     v_t, rho_t, mu_t, pr, gamma, t0, t_t = cea.sonic_throat_state(inputs)
     if min(throat_gap, v_t, rho_t, mu_t, t_t) <= 0.0:
         raise ValueError("Throat gap and sonic transport properties must be positive.")
 
+    # Compute sonic-throat Reynolds number and turbulent (Stratford) or laminar (Tang & Fenn) closures.
     sonic_gap = throat_gap / max(1.0, float(inputs.get("effective_throat_eps") or 1.0))
     d_h = 2.0 * sonic_gap
     re_t = max((rho_t * v_t * d_h) / mu_t, 1e-6)
@@ -231,11 +254,84 @@ def _boundary_layer_properties(throat_gap: float, inputs: dict) -> tuple[float, 
         delta_over_delta_star = 5.0 / 1.7208
         cf = 0.664 * (re_t ** -0.5)
 
+    # Derive throat BL thickness and y+=1 first cell height from bounded Cd and wall shear.
     cd = min(1.0, max(cd, 0.1))
     bl_thickness = min(delta_over_delta_star * 0.5 * (1.0 - cd) * sonic_gap, 0.5 * sonic_gap)
     u_tau = v_t * math.sqrt(0.5 * cf)
     delta_y1 = mu_t / (rho_t * u_tau)
-    return float(cd), float(bl_thickness), float(delta_y1)
+
+    if spike is None:
+        return float(cd), float(bl_thickness), float(delta_y1)
+
+    spike_x, spike_radius, spike_mach = spike
+    if not spike_x or not (len(spike_x) == len(spike_radius) == len(spike_mach)):
+        raise ValueError("Spike coordinates and Mach distribution must be non-empty and equal length.")
+
+    # Select compressible closure constants and initialize momentum thickness at the spike entry.
+    is_turbulent = re_t >= 1e5
+    recovery_factor = pr ** (1.0 / 3.0 if is_turbulent else 0.5)
+    incompressible_delta_over_theta = 72.0 / 7.0 if is_turbulent else 5.0 / 0.664
+    incompressible_shape_factor = 9.0 / 7.0 if is_turbulent else 2.592
+    shape_factor_mach_slope = 2.22 if is_turbulent else 3.592
+    gamma_minus_one = max(gamma - 1.0, 1e-6)
+
+    entry_mach = max(float(spike_mach[0]), 1.0)
+    entry_recovery_heating = recovery_factor * 0.5 * gamma_minus_one * entry_mach**2
+    momentum_thickness = bl_thickness / (incompressible_delta_over_theta * (1.0 + 0.30 * entry_recovery_heating))
+    prev_temp_ratio = (gamma + 1.0) / (2.0 + gamma_minus_one * entry_mach**2)
+    prev_edge_velocity = v_t * entry_mach * math.sqrt(prev_temp_ratio)
+    prev_mach = entry_mach
+    spike_bl_thicknesses = [float(bl_thickness)]
+
+    # March momentum thickness along each spike segment using midpoint isentropic edge properties.
+    for i in range(1, len(spike_x)):
+        segment_length = math.hypot(spike_x[i] - spike_x[i - 1], spike_radius[i] - spike_radius[i - 1])
+        curr_mach = max(float(spike_mach[i]), 1.0)
+        curr_temp_ratio = (gamma + 1.0) / (2.0 + gamma_minus_one * curr_mach**2)
+        curr_edge_velocity = v_t * curr_mach * math.sqrt(curr_temp_ratio)
+
+        mid_mach = 0.5 * (prev_mach + curr_mach)
+        mid_temp_ratio = (gamma + 1.0) / (2.0 + gamma_minus_one * mid_mach**2)
+        mid_edge_density = rho_t * (mid_temp_ratio ** (1.0 / gamma_minus_one))
+        mid_edge_velocity = v_t * mid_mach * math.sqrt(mid_temp_ratio)
+        mid_edge_viscosity = mu_t * (mid_temp_ratio ** 0.7)
+        mid_recovery_heating = recovery_factor * 0.5 * gamma_minus_one * mid_mach**2
+        eckert_temp_ratio = 1.0 + 0.72 * mid_recovery_heating
+
+        # Evaluate Eckert skin friction, compressible shape factor, and exact integrating-factor step.
+        momentum_reynolds = max((mid_edge_density * mid_edge_velocity * momentum_thickness) / mid_edge_viscosity, 10.0)
+        half_skin_friction = (
+            0.0128 * (eckert_temp_ratio ** -0.575) * (momentum_reynolds ** -0.25)
+            if is_turbulent
+            else 0.2205 * (eckert_temp_ratio ** -0.3) * (momentum_reynolds ** -1.0)
+        )
+        mid_shape_factor = incompressible_shape_factor + shape_factor_mach_slope * mid_recovery_heating
+        acceleration_exponent = max(
+            -20.0,
+            min(
+                20.0,
+                (mid_shape_factor + 2.0 - mid_mach**2)
+                * math.log(max(curr_edge_velocity, 1e-12) / max(prev_edge_velocity, 1e-12)),
+            ),
+        )
+        step_average_factor = (
+            1.0 if abs(acceleration_exponent) < 1e-6 else (1.0 - math.exp(-acceleration_exponent)) / acceleration_exponent
+        )
+
+        # Advance momentum thickness and recover physical boundary-layer thickness at station i.
+        momentum_thickness = max(
+            1e-12,
+            momentum_thickness * math.exp(-acceleration_exponent)
+            + half_skin_friction * segment_length * step_average_factor,
+        )
+        curr_recovery_heating = recovery_factor * 0.5 * gamma_minus_one * curr_mach**2
+        curr_bl_thickness = momentum_thickness * incompressible_delta_over_theta * (1.0 + 0.30 * curr_recovery_heating)
+        spike_bl_thicknesses.append(float(curr_bl_thickness))
+
+        prev_edge_velocity = curr_edge_velocity
+        prev_mach = curr_mach
+
+    return float(cd), float(bl_thickness), float(delta_y1), spike_bl_thicknesses
 
 
 def _iterate_bl(gap_from_cd: Callable[[float], float], inputs: dict) -> tuple[float, float | None, float | None]:
