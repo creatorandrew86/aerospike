@@ -189,7 +189,6 @@ def generate_aerospike_contour(inputs: dict) -> tuple[dict, dict, list[str]]:
     results["bl_thickness"] = bl_thickness
     results["bl_first_cell"] = bl_first_cell
     results["nozzle_size"] = max(results["R_x"])
-    results["x_full"], results["R_x_full"], results["eps_x_full"] = results["x"], results["R_x"], results["eps_x"]
 
     if truncate_percent < 1.0:
         cutoff = results["x"][0] - (results["x"][0] - results["x"][-1]) * truncate_percent

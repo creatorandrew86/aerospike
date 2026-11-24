@@ -8,7 +8,7 @@ from core import cea, input as core_input
 
 _models_modules = {
     "angelino": importlib.import_module("core.performance.1d-modified-angelino"),
-    "design_calibrated": importlib.import_module("core.performance.1d-design-calibrated"),
+    "streamtube": importlib.import_module("core.performance.1d-streamtube"),
     "bell_ideal": importlib.import_module("core.performance.1d-ideal"),
     "bell_eps": importlib.import_module("core.performance.1d-bell"),
 }
@@ -86,26 +86,26 @@ def _prepare_calc_context(case):
     return inputs, calc_results, definition, is_sized
 
 
-def _get_selected_methods(inputs, angelino, design_calibrated, bell_ideal, bell_eps):
+def _get_selected_methods(inputs, angelino, streamtube, bell_ideal, bell_eps):
     eps_val = inputs.get("eps") or 0.0
     selected = []
     if angelino:
         selected.append({
             "key": "angelino",
             "name": "Angelino Modified",
-            "legend": "1D-Modified Aerospike",
+            "legend": "Angelino Modified",
             "color": "#dc2626",
             "linestyle": "-",
             "module": _models_modules["angelino"],
         })
-    if design_calibrated:
+    if streamtube:
         selected.append({
-            "key": "design_calibrated",
-            "name": "Design Calibrated",
-            "legend": "1D-Design-Calibrated Aerospike",
+            "key": "streamtube",
+            "name": "1D Modified",
+            "legend": f"1D Modified ($\\eta = {_models_modules['streamtube'].ETA:.2f}$)",
             "color": "#1d4ed8",
             "linestyle": "-",
-            "module": _models_modules["design_calibrated"],
+            "module": _models_modules["streamtube"],
         })
     if bell_ideal:
         selected.append({
@@ -119,7 +119,7 @@ def _get_selected_methods(inputs, angelino, design_calibrated, bell_ideal, bell_
     if bell_eps:
         selected.append({
             "key": "bell_eps",
-            "name": "Bell (Constant \u03b5)",
+            "name": "Bell (Design \u03b5)",
             "legend": f"1D-Bell ($\\varepsilon = {eps_val:.1f}$, unseparated)",
             "color": "#d97706",
             "linestyle": "-",
@@ -193,7 +193,7 @@ def _save_comparison_tables(col_names, tables_data, parent):
         messagebox.showerror("Error", f"Failed to save file: {e}", parent=parent)
 
 
-def _resolve_comparison_inputs(ui, angelino, design_calibrated, bell_ideal, bell_eps):
+def _resolve_comparison_inputs(ui, angelino, streamtube, bell_ideal, bell_eps):
     results = ui.case.get("results", {})
     definition = ui.case.get("definition", {})
     if not results.get("x"):
@@ -203,7 +203,7 @@ def _resolve_comparison_inputs(ui, angelino, design_calibrated, bell_ideal, bell
         flag if flag is not None else bool(getattr(ui, attr, tk.BooleanVar()).get())
         for flag, attr in (
             (angelino, "compare_angelino_var"),
-            (design_calibrated, "compare_design_var"),
+            (streamtube, "compare_streamtube_var"),
             (bell_ideal, "compare_bell_ideal_var"),
             (bell_eps, "compare_bell_eps_var"),
         )
@@ -221,11 +221,11 @@ def _resolve_comparison_inputs(ui, angelino, design_calibrated, bell_ideal, bell
 def generate_table(
     ui,
     angelino: bool = None,
-    design_calibrated: bool = None,
+    streamtube: bool = None,
     bell_ideal: bool = None,
     bell_eps: bool = None,
 ):
-    resolved = _resolve_comparison_inputs(ui, angelino, design_calibrated, bell_ideal, bell_eps)
+    resolved = _resolve_comparison_inputs(ui, angelino, streamtube, bell_ideal, bell_eps)
     if resolved is None:
         return
     methods, raw_text, raw_mode, case_snapshot = resolved
@@ -349,11 +349,11 @@ def generate_table(
 def generate_graph(
     ui,
     angelino: bool = None,
-    design_calibrated: bool = None,
+    streamtube: bool = None,
     bell_ideal: bool = None,
     bell_eps: bool = None,
 ):
-    resolved = _resolve_comparison_inputs(ui, angelino, design_calibrated, bell_ideal, bell_eps)
+    resolved = _resolve_comparison_inputs(ui, angelino, streamtube, bell_ideal, bell_eps)
     if resolved is None:
         return
     methods, raw_text, raw_mode, case_snapshot = resolved

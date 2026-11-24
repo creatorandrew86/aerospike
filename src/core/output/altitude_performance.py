@@ -5,12 +5,12 @@ from tkinter import filedialog, messagebox, ttk
 from core import cea, input as core_input
 
 _angelino = importlib.import_module("core.performance.1d-modified-angelino")
-_calibrated = importlib.import_module("core.performance.1d-design-calibrated")
+_streamtube = importlib.import_module("core.performance.1d-streamtube")
 
 
 def _get_active_model(ui):
     choice = getattr(ui, "altitude_model_var", tk.StringVar(value="angelino")).get()
-    return _calibrated if "calibrated" in choice.lower() else _angelino
+    return _streamtube if "streamtube" in choice.lower() else _angelino
 
 
 class AutoScrollbar(ttk.Scrollbar):

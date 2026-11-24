@@ -17,7 +17,7 @@ def _create_tooltip(widget, text):
         t = tk.Toplevel(widget)
         t.wm_overrideredirect(True)
         t.geometry(f"+{x}+{y}")
-        tk.Label(t, text=text, bg="#1f2937", fg="#ffffff", font=("Arial", 8), padx=6, pady=3).pack()
+        tk.Label(t, text=text, bg="#1f2937", fg="#ffffff", font=("Arial", 8), justify="left", padx=8, pady=4).pack()
         tip[0] = t
 
     def hide(_):
@@ -28,6 +28,47 @@ def _create_tooltip(widget, text):
     widget.bind("<Enter>", show)
     widget.bind("<Leave>", hide)
     widget.bind("<Destroy>", hide)
+
+
+_MODEL_TOOLTIP = (
+    "Angelino Modified: Best for low-to-medium \u03b5 near design conditions.\n"
+    "1D Modified: Best for high \u03b5 and deep overexpansion (e.g., CD thrusters)."
+)
+
+
+def _info_icon(widget, bg, size=15):
+    root = widget.winfo_toplevel()
+    if hasattr(root, "_info_icon"):
+        return root._info_icon
+    bg_rgb = tuple(c >> 8 for c in widget.winfo_rgb(bg))
+    fg_rgb = (107, 114, 128)
+    c = (size - 1) / 2.0
+    rows = []
+    for y in range(size):
+        dy = y - c
+        row = []
+        for x in range(size):
+            dx = x - c
+            d_ring = abs(math.hypot(dx, dy) - 5.8) - 0.65
+            d_dot = math.hypot(dx, dy + 2.8) - 0.85
+            d_stem = max(abs(dx) - 0.65, abs(dy - 1.2) - 2.0)
+            a = min(1.0, max(0.0, 0.5 - min(d_ring, d_dot, d_stem)))
+            row.append(
+                f"#{int(bg_rgb[0] + (fg_rgb[0] - bg_rgb[0]) * a):02x}"
+                f"{int(bg_rgb[1] + (fg_rgb[1] - bg_rgb[1]) * a):02x}"
+                f"{int(bg_rgb[2] + (fg_rgb[2] - bg_rgb[2]) * a):02x}"
+            )
+        rows.append("{" + " ".join(row) + "}")
+    img = tk.PhotoImage(width=size, height=size)
+    img.put(" ".join(rows))
+    root._info_icon = img
+    return img
+
+
+def _create_info_button(parent, bg, tooltip_text):
+    label = tk.Label(parent, image=_info_icon(parent, bg), bg=bg, bd=0, highlightthickness=0, cursor="hand2")
+    _create_tooltip(label, tooltip_text)
+    return label
 
 
 def _create_loading_circle(parent, bg, size=20):
@@ -333,8 +374,10 @@ def build_interface(ui):
         model_row, text="Angelino Modified", value="angelino", variable=ui.altitude_model_var
     ).pack(side="left", padx=(0, 6))
     ttk.Radiobutton(
-        model_row, text="Calibrated", value="calibrated", variable=ui.altitude_model_var
+        model_row, text="1D Modified", value="streamtube", variable=ui.altitude_model_var
     ).pack(side="left")
+    ui.altitude_model_info = _create_info_button(model_row, bg_parent, _MODEL_TOOLTIP)
+    ui.altitude_model_info.pack(side="left", padx=(6, 0))
 
     entry_row = ttk.Frame(ui.altitude_analysis_frame)
     entry_row.grid(column=0, row=2, columnspan=2, sticky="EW", pady=1)
@@ -353,9 +396,10 @@ def build_interface(ui):
     ui.input_analysis.grid(column=1, row=0, sticky="EW")
     ui.input_altitude = ui.input_analysis
 
-    ui.info_button = tk.Label(entry_row, text="ⓘ", font=("Arial", 10), fg="#6b7280", cursor="hand2")
+    ui.info_button = _create_info_button(
+        entry_row, bg_parent, "Enter one or multiple values separated by comma ','"
+    )
     ui.info_button.grid(column=2, row=0, padx=(6, 0))
-    _create_tooltip(ui.info_button, "Enter one or multiple values separated by comma ','")
 
     action_row = ttk.Frame(ui.altitude_analysis_frame)
     action_row.grid(column=0, row=3, columnspan=2, sticky="EW", pady=(4, 1))
@@ -391,11 +435,15 @@ def build_interface(ui):
     comp_title_row.columnconfigure(0, weight=1)
     comp_title_row.columnconfigure(2, weight=1)
     ttk.Separator(comp_title_row, orient="horizontal").grid(column=0, row=0, sticky="EW")
+    comp_title_center = ttk.Frame(comp_title_row)
+    comp_title_center.grid(column=1, row=0, padx=8)
     ttk.Label(
-        comp_title_row,
+        comp_title_center,
         text="Performance Comparison",
         font=font.Font(family="Arial", size=9, weight="bold"),
-    ).grid(column=1, row=0, padx=8)
+    ).pack(side="left")
+    ui.comparison_model_info = _create_info_button(comp_title_center, bg_parent, _MODEL_TOOLTIP)
+    ui.comparison_model_info.pack(side="left", padx=(5, 0))
     ttk.Separator(comp_title_row, orient="horizontal").grid(column=2, row=0, sticky="EW")
 
     ui.compare_angelino_var = tk.BooleanVar(value=False)
@@ -404,11 +452,11 @@ def build_interface(ui):
     )
     ui.compare_angelino_check.grid(column=0, row=1, sticky="W", pady=1)
 
-    ui.compare_design_var = tk.BooleanVar(value=False)
-    ui.compare_design_check = ttk.Checkbutton(
-        ui.performance_comparison_frame, text="Design Calibrated", variable=ui.compare_design_var
+    ui.compare_streamtube_var = tk.BooleanVar(value=False)
+    ui.compare_streamtube_check = ttk.Checkbutton(
+        ui.performance_comparison_frame, text="1D Modified", variable=ui.compare_streamtube_var
     )
-    ui.compare_design_check.grid(column=0, row=2, sticky="W", pady=1)
+    ui.compare_streamtube_check.grid(column=0, row=2, sticky="W", pady=1)
 
     ui.compare_bell_ideal_var = tk.BooleanVar(value=False)
     ui.compare_bell_ideal_check = ttk.Checkbutton(
@@ -418,7 +466,7 @@ def build_interface(ui):
 
     ui.compare_bell_eps_var = tk.BooleanVar(value=False)
     ui.compare_bell_eps_check = ttk.Checkbutton(
-        ui.performance_comparison_frame, text="Bell (Constant \u03b5)", variable=ui.compare_bell_eps_var
+        ui.performance_comparison_frame, text="Bell (Design \u03b5)", variable=ui.compare_bell_eps_var
     )
     ui.compare_bell_eps_check.grid(column=1, row=2, sticky="W", pady=1)
 
