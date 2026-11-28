@@ -89,6 +89,9 @@ class Interface:
             "contraction_ratio": self._parse_float(self.input_contraction_ratio.get()),
             "convergent_nozzle_angle": self._parse_float(self.input_convergent_nozzle_angle.get()),
             "thruster_nozzle": self.thruster_nozzle_var.get(),
+            "far_left": self._parse_float(self.input_far_left.get()),
+            "far_top": self._parse_float(self.input_far_top.get()),
+            "far_right": self._parse_float(self.input_far_right.get()),
             "grid_density": self._parse_float(self.input_grid_density.get()),
             "bl_mesh_density": self._parse_float(self.input_bl_mesh_density.get()),
         }
@@ -100,7 +103,14 @@ class Interface:
         state = 'normal' if self.sizing_var.get() else 'disabled'
         self.linear_check.configure(state=state)
         self.toroidal_check.configure(state=state)
-        for widget in (*getattr(self, "cfd_buttons", ()), getattr(self, "input_grid_density", None), getattr(self, "input_bl_mesh_density", None)):
+        for widget in (
+            *getattr(self, "cfd_buttons", ()),
+            getattr(self, "input_far_left", None),
+            getattr(self, "input_far_top", None),
+            getattr(self, "input_far_right", None),
+            getattr(self, "input_grid_density", None),
+            getattr(self, "input_bl_mesh_density", None),
+        ):
             if widget is not None:
                 widget.configure(state=state)
         if not self.sizing_var.get():
@@ -112,9 +122,11 @@ class Interface:
 
 
     def sync_post_solve(self):
-        state = 'normal' if self.case["results"].get("x") else 'disabled'
-        self.contour_button.configure(state=state)
-        self.graph_button.configure(state=state)
+        has_results = bool(self.case["results"].get("x"))
+        state = 'normal' if has_results else 'disabled'
+        for btn in (self.contour_button, self.graph_button):
+            btn.configure(state=state)
+            btn.grid() if has_results else btn.grid_remove()
         self.on_thruster_toggle()
 
 

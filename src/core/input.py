@@ -196,10 +196,16 @@ def process_inputs_on_gmsh_geometry(inputs: dict) -> list[str]:
                 or inputs["convergent_nozzle_angle"] >= 65):
             errors.append("Convergent Nozzle Angle must be selected and between 25 and 65 degrees.")
 
-    for key, label in (("grid_density", "Grid Density Factor"), ("bl_mesh_density", "Boundary Layer Density Factor")):
+    for key, label, required in (
+        ("far_left", "Far Left", False),
+        ("far_top", "Far Top", False),
+        ("far_right", "Far Right", False),
+        ("grid_density", "Grid Density Factor", True),
+        ("bl_mesh_density", "Boundary Layer Density Factor", True),
+    ):
         if key in inputs:
             val = inputs[key]
-            if val is None or not math.isfinite(val) or val <= 0:
+            if (val is None and required) or (val is not None and (not math.isfinite(val) or val <= 0)):
                 errors.append(f"{label} must be a positive number.")
 
     return errors

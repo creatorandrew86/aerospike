@@ -3,6 +3,7 @@ import threading
 import tkinter as tk
 from tkinter import font, messagebox, ttk
 
+from cfd.geometry.domain_geometry import FAR_LEFT, FAR_RIGHT, FAR_TOP
 from core import cea, input as core_input
 from core.output import index
 
@@ -33,6 +34,11 @@ def _create_tooltip(widget, text):
 _MODEL_TOOLTIP = (
     "Angelino Modified: Best for low-to-medium \u03b5 near design conditions.\n"
     "1D Modified: Best for high \u03b5 and deep overexpansion (e.g., CD thrusters)."
+)
+_FARFIELD_TOOLTIP = (
+    "Optional; distances are multiples of scale\n"
+    "(cowl radius for toroidal, half-width for linear).\n"
+    f"Defaults: Left = {FAR_LEFT}, Top = {FAR_TOP}, Right = {FAR_RIGHT}"
 )
 
 
@@ -333,10 +339,12 @@ def build_interface(ui):
     ttk.Label(ui.main_output, text="No results available.", foreground="gray40").grid(column=0, row=0, sticky="W")
     ui.graph_button = ttk.Button(ui.results_frame, text='Contour Graph', command=lambda: index.graph_output(ui), state='disabled')
     ui.graph_button.grid(column=0, row=1, pady=(4, 0), sticky='EW')
+    ui.graph_button.grid_remove()
     ui.contour_button = ttk.Button(
         ui.results_frame, text='Save As', command=lambda: index.save_results_file(ui), state='disabled'
     )
     ui.contour_button.grid(column=0, row=2, pady=(4, 0), sticky='EW')
+    ui.contour_button.grid_remove()
 
     ui.performance_frame = ttk.LabelFrame(ui.results_tab, padding=10)
     ui.performance_frame.grid(column=1, row=0, padx=(5, 10), pady=(7, 7), sticky="NSEW")
@@ -494,26 +502,47 @@ def build_interface(ui):
     ui.results_tab.columnconfigure(1, weight=1)
     ui.results_tab.rowconfigure(0, weight=1)
 
+    # CFD tab: farfield extent inputs
+    cfd_farfield_row = ttk.Frame(ui.cfd_tab)
+    cfd_farfield_row.grid(column=0, row=0, padx=10, pady=(8, 4), sticky='EW')
+    ttk.Label(cfd_farfield_row, text="Farfield Distance:").grid(column=0, row=0, padx=(0, 8), sticky='W')
+    for column in (2, 4, 6):
+        cfd_farfield_row.columnconfigure(column, weight=1, uniform='farfield')
+    for idx, (label, attr) in enumerate((
+        ("Left:", "input_far_left"),
+        ("Top:", "input_far_top"),
+        ("Right:", "input_far_right"),
+    )):
+        col = 1 + 2 * idx
+        ttk.Label(cfd_farfield_row, text=label).grid(column=col, row=0, padx=(0, 4), sticky='W')
+        entry = ttk.Entry(cfd_farfield_row, width=6)
+        entry.grid(column=col + 1, row=0, padx=(0, 8) if idx < 2 else 0, sticky='EW')
+        setattr(ui, attr, entry)
+    _create_info_button(cfd_farfield_row, bg_parent, _FARFIELD_TOOLTIP).grid(column=7, row=0, padx=(6, 0))
+
     # CFD tab: thruster inputs
     ui.thruster_nozzle_var = tk.BooleanVar(value=False)
-    ui.thruster_frame = ttk.LabelFrame(ui.cfd_tab)
-    ui.thruster_frame.grid(column=0, row=0, padx=10, pady=(6, 4), sticky='EW')
+    ui.thruster_frame = tk.Frame(
+        ui.cfd_tab, bg=bg_parent, highlightbackground="#c5c8cc", highlightcolor="#c5c8cc", highlightthickness=1, bd=0
+    )
+    ui.thruster_frame.grid(column=0, row=1, padx=10, pady=(2, 4), sticky='EW')
+    for column in (3, 5):
+        ui.thruster_frame.columnconfigure(column, weight=1, uniform='thruster')
     ui.thruster_nozzle_check = ttk.Checkbutton(
         ui.thruster_frame, text="Model Thruster", variable=ui.thruster_nozzle_var, command=ui.on_thruster_toggle, state='disabled'
     )
-    ui.thruster_frame.configure(labelwidget=ui.thruster_nozzle_check)
-    for column in (1, 3):
-        ui.thruster_frame.columnconfigure(column, weight=1, uniform='thruster')
-    ttk.Label(ui.thruster_frame, text='Contraction Ratio:').grid(column=0, row=0, padx=(10, 4), pady=(6, 8), sticky='W')
-    ui.input_contraction_ratio = ttk.Entry(ui.thruster_frame, width=10, state='disabled')
-    ui.input_contraction_ratio.grid(column=1, row=0, padx=(0, 10), pady=(6, 8), sticky='EW')
-    ttk.Label(ui.thruster_frame, text='Convergent Nozzle Angle (deg):').grid(column=2, row=0, padx=(4, 4), pady=(6, 8), sticky='W')
-    ui.input_convergent_nozzle_angle = ttk.Entry(ui.thruster_frame, width=10, state='disabled')
-    ui.input_convergent_nozzle_angle.grid(column=3, row=0, padx=(0, 10), pady=(6, 8), sticky='EW')
+    ui.thruster_nozzle_check.grid(column=0, row=0, padx=(8, 6), pady=5, sticky='W')
+    ttk.Separator(ui.thruster_frame, orient='vertical').grid(column=1, row=0, padx=(0, 8), pady=4, sticky='NS')
+    ttk.Label(ui.thruster_frame, text='Contraction Ratio:').grid(column=2, row=0, padx=(0, 4), pady=5, sticky='W')
+    ui.input_contraction_ratio = ttk.Entry(ui.thruster_frame, width=6, state='disabled')
+    ui.input_contraction_ratio.grid(column=3, row=0, padx=(0, 8), pady=5, sticky='EW')
+    ttk.Label(ui.thruster_frame, text='Convergent Angle (\u00b0):').grid(column=4, row=0, padx=(0, 4), pady=5, sticky='W')
+    ui.input_convergent_nozzle_angle = ttk.Entry(ui.thruster_frame, width=6, state='disabled')
+    ui.input_convergent_nozzle_angle.grid(column=5, row=0, padx=(0, 8), pady=5, sticky='EW')
 
     # CFD tab: mesh density inputs
     cfd_density_row = ttk.Frame(ui.cfd_tab)
-    cfd_density_row.grid(column=0, row=1, padx=10, pady=(4, 6), sticky='EW')
+    cfd_density_row.grid(column=0, row=2, padx=10, pady=(4, 6), sticky='EW')
     for column in (1, 3):
         cfd_density_row.columnconfigure(column, weight=1, uniform='density')
     ttk.Label(cfd_density_row, text='Grid Density Factor:').grid(column=0, row=0, padx=(0, 4), sticky='W')
@@ -527,7 +556,7 @@ def build_interface(ui):
 
     # CFD export actions
     cfd_actions_frame = ttk.Frame(ui.cfd_tab)
-    cfd_actions_frame.grid(column=0, row=2, padx=10, pady=(2, 8), sticky='EW')
+    cfd_actions_frame.grid(column=0, row=3, padx=10, pady=(2, 6), sticky='EW')
     for column in range(3):
         cfd_actions_frame.columnconfigure(column, weight=1, uniform='cfd_btn')
     ui.mesh_button = ttk.Button(
@@ -547,7 +576,7 @@ def build_interface(ui):
 
     # CFD results panel (left half)
     cfd_bottom = ttk.Frame(ui.cfd_tab)
-    cfd_bottom.grid(column=0, row=3, sticky='NSEW')
+    cfd_bottom.grid(column=0, row=4, sticky='NSEW')
     cfd_bottom.columnconfigure(0, weight=1, uniform='cfd_half')
     cfd_bottom.columnconfigure(1, weight=1, uniform='cfd_half')
     cfd_bottom.rowconfigure(0, weight=1)
@@ -570,7 +599,7 @@ def build_interface(ui):
 
     ui.cfd_buttons = (ui.mesh_button, ui.cfd_case_definition_button, ui.geo_button, ui.mesh_quality_button)
     ui.cfd_tab.columnconfigure(0, weight=1)
-    ui.cfd_tab.rowconfigure(3, weight=1)
+    ui.cfd_tab.rowconfigure(4, weight=1)
 
     ui.on_thruster_toggle()
     ui.on_sizing_toggle()

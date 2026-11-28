@@ -111,7 +111,8 @@ def generate_geometry_file(case):
         1.0 if grid_density is None else grid_density,
         1.0 if bl_mesh_density is None else bl_mesh_density,
     )
-    farfield_cell_size = mesh.DEFAULT_FARFIELD_CELL_SIZE * scale / factors["farfield"]
+    farfield_cell_number = max(10, round(mesh.DEFAULT_FARFIELD_CELL_NUMBER * factors["farfield"]))
+    farfield_cell_size = geometry.lengths["far_305"] / farfield_cell_number
     cowl_cell_size = mesh.DEFAULT_COWL_CELL_SIZE * scale / factors["cowl"]
     inlet_cell_number = max(3, round(mesh.DEFAULT_INLET_CELL_NUMBER * factors["inlet"]))
     inlet_cell_size = geometry.lengths["inlet"] / inlet_cell_number
@@ -374,15 +375,8 @@ def generate_geometry_file(case):
         "",
         "// Farfield",
         mesh.beta("304", geometry.lengths["far_304"], cowl_cell_size, farfield_cell_size, 1.2, min_cells=10),
-        *(
-            mesh.transfinite(
-                str(curve),
-                max(10, round(geometry.lengths[f"far_{curve}"] / farfield_cell_size)),
-                "Progression",
-                1,
-            )
-            for curve in (305, 306, 307)
-        ),
+        mesh.transfinite("305, 307", farfield_cell_number, "Progression", 1),
+        mesh.transfinite("306", max(10, round(geometry.lengths["far_306"] / farfield_cell_size)), "Progression", 1),
         mesh.beta(
             "-308",
             geometry.lengths["far_308"],

@@ -10,9 +10,9 @@ from cfd.geometry.conv_thruster import conv_nozzle_contour
 from core.input import process_inputs_on_gmsh_geometry
 
 
-FAR_RIGHT = 24
-FAR_TOP = 9
-FAR_LEFT = -2.5
+FAR_RIGHT = 25
+FAR_TOP = 10
+FAR_LEFT = 3
 COWL_TOP_FACTOR = 1.3
 COWL_BACK_FACTOR = -0.375
 COWL_CLEARANCE_FACTOR = 0.1
@@ -273,6 +273,9 @@ def build_geometry(case):
     input_errors = process_inputs_on_gmsh_geometry(cfd_input)
     if input_errors:
         raise ValueError("\n".join(input_errors))
+    far_left = FAR_LEFT if cfd_input.get("far_left") is None else float(cfd_input["far_left"])
+    far_top = FAR_TOP if cfd_input.get("far_top") is None else float(cfd_input["far_top"])
+    far_right = FAR_RIGHT if cfd_input.get("far_right") is None else float(cfd_input["far_right"])
     thruster_nozzle = cfd_input["thruster_nozzle"]
     contraction_ratio = cfd_input["contraction_ratio"]
     convergent_nozzle_angle = cfd_input["convergent_nozzle_angle"]
@@ -438,11 +441,27 @@ def build_geometry(case):
             ),
             **_cowl_anchors(cowl_lip, scale, [inlet_end_point, cowl_lip, spike[0], spike_entry]),
         }
+    far_left_x = -scale * far_left
+    far_top_y = scale * far_top
+    far_right_x = scale * far_right
+    if far_left_x >= anchors["cowl_bottom"][0]:
+        raise ValueError(
+            f"Far Left must exceed the cowl upstream extent ({-anchors['cowl_bottom'][0] / scale:.2f}x scale)."
+        )
+    if far_top_y <= anchors["cowl_top"][1]:
+        raise ValueError(
+            f"Far Top must exceed the cowl height ({anchors['cowl_top'][1] / scale:.2f}x scale)."
+        )
+    min_far_right_x = boundary_layer[-1][0] if truncated else max(spike[-1][0], 2.0 * boundary_layer[-1][0] - spike[-1][0])
+    if far_right_x <= min_far_right_x:
+        raise ValueError(
+            f"Far Right must exceed the spike downstream extent ({min_far_right_x / scale:.2f}x scale)."
+        )
     anchors.update({
-        "far_right_axis": (scale * FAR_RIGHT, 0.0),
-        "far_right_top": (scale * FAR_RIGHT, scale * FAR_TOP),
-        "far_left_top": (scale * FAR_LEFT, scale * FAR_TOP),
-        "far_left_axis": (scale * FAR_LEFT, 0.0),
+        "far_right_axis": (far_right_x, 0.0),
+        "far_right_top": (far_right_x, far_top_y),
+        "far_left_top": (far_left_x, far_top_y),
+        "far_left_axis": (far_left_x, 0.0),
     })
     if not truncated:
         end_bl_thickness = _distance(spike[-1], boundary_layer[-1])
